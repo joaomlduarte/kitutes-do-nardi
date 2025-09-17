@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, StyleSheet, Alert } from 'react-native';
-import db from '../storage/database';
+import { getDb } from '../storage/database';
 
 export default function ProdutosScreen() {
   const [id, setId] = useState('');
@@ -11,6 +11,7 @@ export default function ProdutosScreen() {
   useEffect(() => { carregar(); }, []);
 
   async function carregar() {
+    const db = await getDb();
     const rows = await db.getAllAsync('SELECT * FROM produtos ORDER BY nome ASC');
     setLista(rows);
   }
@@ -20,11 +21,12 @@ export default function ProdutosScreen() {
       Alert.alert('Campos obrigatórios', 'Preencha ID, Nome e Preço.');
       return;
     }
-    const p = Number(preco.replace(',', '.'));
+    const p = Number(preco.toString().replace(',', '.'));
     if (Number.isNaN(p) || p <= 0) {
       Alert.alert('Preço inválido', 'Use número maior que zero (ex: 5.50).');
       return;
     }
+    const db = await getDb();
     await db.runAsync('INSERT OR REPLACE INTO produtos (id, nome, preco) VALUES (?, ?, ?)', [id.trim(), nome.trim(), p]);
     setId(''); setNome(''); setPreco('');
     carregar();
@@ -34,9 +36,10 @@ export default function ProdutosScreen() {
     Alert.alert('Remover produto', `Deseja remover o produto ${prodId}?`, [
       { text: 'Cancelar' },
       { text: 'Remover', style: 'destructive', onPress: async () => {
+        const db = await getDb();
         await db.runAsync('DELETE FROM produtos WHERE id = ?', [prodId]);
         carregar();
-      }}
+      } }
     ]);
   }
 

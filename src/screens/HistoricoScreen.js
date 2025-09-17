@@ -1,38 +1,42 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Button, FlatList, StyleSheet } from 'react-native';
-import db from '../storage/database';
 import dayjs from 'dayjs';
+import { getDb } from '../storage/database';
 
 export default function HistoricoScreen() {
   const [vendas, setVendas] = useState([]);
 
-  useEffect(() => {
-    carregar();
-  }, []);
+  useEffect(() => { carregar(); }, []);
 
-  function carregar() {
+  async function carregar() {
     const hoje = dayjs().format('YYYY-MM-DD');
-    db.getAllAsync('SELECT * FROM vendas WHERE data = ?', [hoje]).then(setVendas);
+    const db = await getDb();
+    const rows = await db.getAllAsync('SELECT * FROM vendas WHERE data = ? ORDER BY id DESC', [hoje]);
+    setVendas(rows);
   }
+
+  const totalDia = vendas.reduce((a, v) => a + Number(v.quantidade) * Number(v.preco_unit), 0);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.titulo}>Histórico do Dia</Text>
+      <Text style={styles.title}>Histórico do Dia</Text>
       <FlatList
         data={vendas}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (
           <Text>
-            Comanda {item.comanda} - Produto {item.produto_id} - {item.quantidade}x - R$ {(item.quantidade * item.preco_unit).toFixed(2)}
+            Comanda {item.comanda} — {item.quantidade}x {item.produto_id} — R$ {(item.quantidade * item.preco_unit).toFixed(2)}
           </Text>
         )}
+        ListEmptyComponent={<Text style={{ color: '#666' }}>Sem vendas hoje.</Text>}
       />
+      <Text style={{ marginTop: 8, fontWeight: '700' }}>Total do dia: R$ {totalDia.toFixed(2)}</Text>
       <Button title="Recarregar" onPress={carregar} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
-  titulo: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  container: { flex: 1, padding: 16, gap: 10 },
+  title: { fontSize: 22, fontWeight: '800' }
 });
