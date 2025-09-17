@@ -3,7 +3,7 @@
     "name": "Kitutes do Nardi",
     "slug": "kitutes-do-nardi",
     "version": "1.0.0",
-    "orientation": "default",           
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "kitutesdonardi",
     "userInterfaceStyle": "automatic",
@@ -12,12 +12,14 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "updates": {
-      "enabled": false                  
+      "enabled": false
     },
     "android": {
-      "package": "com.seunome.kitutesdonardi",  
+      "package": "com.seunome.kitutesdonardi",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -26,10 +28,17 @@
       "permissions": []
     },
     "ios": {
-      "bundleIdentifier": "com.seunome.kitutesdonardi", 
+      "bundleIdentifier": "com.seunome.kitutesdonardi",
       "supportsTablet": true,
       "buildNumber": "1"
     },
-    "plugins": []
+    "plugins": [
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7f1e2970-0a52-403c-981c-f759298f1329"
+      }
+    }
   }
 }
