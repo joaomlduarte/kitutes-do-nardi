@@ -1,6 +1,6 @@
 // src/screens/ComandaDetailScreen.js
-import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet, Alert, TouchableOpacity, Keyboard, Platform } from 'react-native';
 import Input from '../components/Input';
 import { getDb } from '../storage/database';
 import dayjs from 'dayjs';
@@ -13,6 +13,8 @@ export default function ComandaDetailScreen({ route, navigation }) {
   const [produtoRef, setProdutoRef] = useState('');
   const [quantidade, setQuantidade] = useState('');
   const [sugestoes, setSugestoes] = useState([]);
+  const [inputHeight, setInputHeight] = useState(48);
+  const inputBoxRef = useRef(null);
 
   useEffect(() => {
     navigation.setOptions({ title: `Comanda #${comandaId}` });
@@ -22,42 +24,66 @@ export default function ComandaDetailScreen({ route, navigation }) {
   async function carregarProdutos() {
     const db = await getDb();
     const lista = await db.getAllAsync('SELECT * FROM produtos');
+    // ordena por nome para uma sugestão mais “natural”
+    lista.sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt', { sensitivity: 'base' }));
     setProdutos(lista);
   }
 
-  const norm = (s) =>
-    String(s || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .trim()
-      .toLowerCase();
+  // ---- util: remover acentos com fallback (evita depender de String.prototype.normalize) ----
+  const stripAccents = (s = '') => {
+    try {
+      return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    } catch {
+      // fallback básico
+      const map = {
+        á:'a', à:'a', â:'a', ã:'a', ä:'a', å:'a', æ:'ae',
+        Á:'A', À:'A', Â:'A', Ã:'A', Ä:'A', Å:'A',
+        é:'e', è:'e', ê:'e', ë:'e',
+        É:'E', È:'E', Ê:'E', Ë:'E',
+        í:'i', ì:'i', î:'i', ï:'i',
+        Í:'I', Ì:'I', Î:'I', Ï:'I',
+        ó:'o', ò:'o', ô:'o', õ:'o', ö:'o', œ:'oe',
+        Ó:'O', Ò:'O', Ô:'O', Õ:'O', Ö:'O',
+        ú:'u', ù:'u', û:'u', ü:'u',
+        Ú:'U', Ù:'U', Û:'U', Ü:'U',
+        ñ:'n', Ñ:'N', ç:'c', Ç:'C'
+      };
+      return s.split('').map(ch => map[ch] || ch).join('');
+    }
+  };
 
+  const norm = (s) => stripAccents(String(s || '').trim().toLowerCase());
+
+  // ---- sugestões (ID inicia com… OU nome contém) ----
   function atualizarSugestoes(texto) {
     setProdutoRef(texto);
-    if (!texto.trim()) {
+    const t = String(texto || '').trim();
+    if (!t) {
       setSugestoes([]);
       return;
     }
+    const tNorm = norm(t);
 
-    const termo = norm(texto);
     const lista = produtos.filter(
       (p) =>
-        String(p.id).startsWith(texto.trim()) ||
-        norm(p.nome).includes(termo)
+        String(p.id).startsWith(t) ||
+        norm(p.nome).includes(tNorm)
     );
 
-    setSugestoes(lista.slice(0, 5)); // máximo 5 sugestões
+    setSugestoes(lista.slice(0, 8));
   }
 
   function escolherSugestao(p) {
-    setProdutoRef(p.id); // insere o ID (mas poderia usar p.nome)
+    // Preenche com o ID (mais estável); se preferir nome, troque para p.nome
+    setProdutoRef(String(p.id));
     setSugestoes([]);
+    // Mantém o teclado aberto para já digitar a quantidade
   }
 
+  // ---- resolver produto por ID exato, nome exato, prefixo único de ID/NOME ----
   function resolverProduto(ref) {
     const refStr = String(ref || '').trim();
     const refNorm = norm(refStr);
-
     if (!refStr) return null;
 
     let p = produtos.find((x) => String(x.id) === refStr);
@@ -136,20 +162,42 @@ export default function ComandaDetailScreen({ route, navigation }) {
     <View style={styles.container}>
       <Text style={styles.title}>Adicionar itens</Text>
 
-      <View style={styles.row}>
-        <View style={{ flex: 1 }}>
+      <View
+        style={styles.row}
+        pointerEvents="auto"
+      >
+        {/* Caixa do input com posição relativa para o dropdown absoluto */}
+        <View
+          ref={inputBoxRef}
+          style={styles.inputBox}
+          onLayout={(e) => setInputHeight(e.nativeEvent.layout.height || 48)}
+        >
           <Input
             style={{ flex: 1 }}
             placeholder="ID ou NOME do produto"
             value={produtoRef}
             onChangeText={atualizarSugestoes}
             autoCapitalize="characters"
+            onBlur={() => setTimeout(() => setSugestoes([]), 150)} // dá tempo de tocar na sugestão
           />
+
+          {/* DROPDOWN */}
           {sugestoes.length > 0 && (
-            <View style={styles.dropdown}>
+            <View
+              style={[
+                styles.dropdown,
+                { top: inputHeight + 4 } // logo abaixo do input
+              ]}
+              pointerEvents="auto"
+            >
               {sugestoes.map((p) => (
-                <TouchableOpacity key={p.id} onPress={() => escolherSugestao(p)} style={styles.sugestaoItem}>
-                  <Text style={styles.sugestaoTxt}>{p.id} - {p.nome}</Text>
+                <TouchableOpacity
+                  key={String(p.id)}
+                  style={styles.sugestaoItem}
+                  onPress={() => escolherSugestao(p)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.sugestaoTxt}>{p.id} — {p.nome}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -177,6 +225,7 @@ export default function ComandaDetailScreen({ route, navigation }) {
         renderItem={renderItem}
         ItemSeparatorComponent={() => <View style={{ height: SPACING.sm + 2 }} />}
         contentContainerStyle={{ paddingVertical: SPACING.md }}
+        keyboardShouldPersistTaps="handled"
       />
 
       <View style={styles.footer}>
@@ -189,11 +238,32 @@ export default function ComandaDetailScreen({ route, navigation }) {
   );
 }
 
+const SHADOW = Platform.select({
+  android: { elevation: 12 },
+  ios: {
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  default: {},
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
   title: { fontSize: FONT.size.lg, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.sm },
   subtitle: { marginTop: SPACING.lg, fontWeight: '800', color: COLORS.text },
   row: { flexDirection: 'row', alignItems: 'center' },
+
+  // caixa do input para posicionar dropdown
+  inputBox: {
+    flex: 1,
+    position: 'relative',
+    zIndex: 50,
+    // garante que o dropdown possa “sair” da caixa
+    overflow: 'visible',
+  },
+
   addBtn: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: SPACING.xl - 2,
@@ -223,15 +293,19 @@ const styles = StyleSheet.create({
   finishTxt: { color: '#fff', fontWeight: '900' },
 
   dropdown: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     backgroundColor: '#1e1e1e',
-    borderRadius: 6,
-    marginTop: 2,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#333',
-    maxHeight: 150,
+    maxHeight: 224,
+    zIndex: 9999,
+    ...SHADOW,
   },
   sugestaoItem: {
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
   },
   sugestaoTxt: { color: '#fff' },
