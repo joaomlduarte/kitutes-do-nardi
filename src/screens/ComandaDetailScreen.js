@@ -1,135 +1,117 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, StyleSheet, Alert } from 'react-native';
-import dayjs from 'dayjs';
+// src/screens/ComandaDetailScreen.js
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet, Alert } from 'react-native';
+import Input from '../components/Input';
 import { getDb } from '../storage/database';
-import { useIsFocused, useRoute, useNavigation } from '@react-navigation/native';
+import dayjs from 'dayjs';
 
-export default function ComandaDetailScreen() {
-  const route = useRoute();
-  const nav = useNavigation();
-  const { comandaId, comandaNome } = route.params;
-
+export default function ComandaDetailScreen({ route, navigation }) {
+  const { comandaId } = route.params;
   const [produtos, setProdutos] = useState([]);
-  const [busca, setBusca] = useState('');
-  const [qtd, setQtd] = useState('');
   const [itens, setItens] = useState([]);
-  const [total, setTotal] = useState(0);
-  const isFocused = useIsFocused();
+  const [produtoId, setProdutoId] = useState('');
+  const [quantidade, setQuantidade] = useState('');
 
-  useEffect(() => { if (isFocused) { carregarProdutos(); carregarItens(); } }, [isFocused]);
+  useEffect(() => {
+    navigation.setOptions({ title: `Comanda #${comandaId}` });
+    carregarProdutos();
+  }, [comandaId]);
 
   async function carregarProdutos() {
     const db = await getDb();
-    const rows = await db.getAllAsync('SELECT * FROM produtos ORDER BY nome ASC');
-    setProdutos(rows);
+    const lista = await db.getAllAsync('SELECT * FROM produtos');
+    setProdutos(lista);
   }
 
-  async function carregarItens() {
-    const db = await getDb();
-    const rows = await db.getAllAsync('SELECT * FROM itens_abertos WHERE comanda_id = ? ORDER BY id DESC', [comandaId]);
-    setItens(rows);
-    const trow = await db.getAllAsync('SELECT SUM(quantidade*preco_unit) AS total FROM itens_abertos WHERE comanda_id = ?', [comandaId]);
-    setTotal(Number(trow?.[0]?.total || 0));
+  function addItem() {
+    if (!produtoId || !quantidade) {
+      Alert.alert('Dados faltando', 'Informe ID do produto e quantidade.');
+      return;
+    }
+    const qtd = Number(String(quantidade).replace(',', '.'));
+    if (Number.isNaN(qtd) || qtd <= 0) {
+      Alert.alert('Quantidade inválida', 'Digite uma quantidade válida.');
+      return;
+    }
+    const p = produtos.find(p => String(p.id) === String(produtoId));
+    if (!p) {
+      Alert.alert('Produto não encontrado', 'Verifique o ID do produto.');
+      return;
+    }
+    const novo = { produto_id: String(p.id), nome: p.nome, preco_unit: Number(p.preco), quantidade: qtd };
+    setItens(prev => [novo, ...prev]);
+    setProdutoId(''); setQuantidade('');
   }
 
-  function resolverProduto(input) {
-    const s = String(input ?? '').trim();
-    if (!s) return null;
-    let p = produtos.find(p => String(p.id).trim() === s);
-    if (p) return p;
-    const low = s.toLowerCase();
-    p = produtos.find(p => String(p.nome).toLowerCase().startsWith(low));
-    return p || null;
-  }
-
-  async function adicionar() {
-    const prod = resolverProduto(busca);
-    const q = Number(String(qtd).replace(',', '.').trim());
-    if (!prod) { Alert.alert('Produto não encontrado'); return; }
-    if (!Number.isFinite(q) || q <= 0) { Alert.alert('Quantidade inválida'); return; }
-
-    const db = await getDb();
-    await db.runAsync(
-      'INSERT INTO itens_abertos (comanda_id, produto_id, quantidade, preco_unit) VALUES (?, ?, ?, ?)',
-      [comandaId, prod.id, q, prod.preco]
-    );
-    setBusca(''); setQtd('');
-    carregarItens();
-  }
-
-  async function removerItem(itemId) {
-    const db = await getDb();
-    await db.runAsync('DELETE FROM itens_abertos WHERE id = ?', [itemId]);
-    carregarItens();
-  }
+  const total = useMemo(() => itens.reduce((acc, it) => acc + it.quantidade * it.preco_unit, 0), [itens]);
 
   async function finalizar() {
-    if (itens.length === 0) { Alert.alert('Nada para finalizar'); return; }
+    if (itens.length === 0) {
+      Alert.alert('Sem itens', 'Adicione ao menos 1 item.');
+      return;
+    }
     const db = await getDb();
     const data = dayjs().format('YYYY-MM-DD');
-
     for (const it of itens) {
       await db.runAsync(
         'INSERT INTO vendas (data, comanda, produto_id, quantidade, preco_unit) VALUES (?, ?, ?, ?, ?)',
-        [data, comandaNome, it.produto_id, it.quantidade, it.preco_unit]
+        [data, String(comandaId), it.produto_id, it.quantidade, it.preco_unit]
       );
     }
-    await db.runAsync('DELETE FROM comandas_abertas WHERE id = ?', [comandaId]); // cascade apaga itens
-
-    Alert.alert('Comanda finalizada', `Total R$ ${total.toFixed(2)}`);
-    nav.goBack();
+    Alert.alert('Comanda finalizada', `Total: R$ ${total.toFixed(2)}`);
+    navigation.goBack();
   }
+
+  const renderItem = ({ item }) => (
+    <View style={styles.item}>
+      <Text style={styles.itemNome}>{item.nome}</Text>
+      <Text style={styles.itemSub}>
+        ID: {item.produto_id} • Qtd: {item.quantidade} • Unit: R$ {item.preco_unit.toFixed(2)}
+      </Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Comanda: {comandaNome}</Text>
+      <Text style={styles.title}>Adicionar itens</Text>
 
-      <TextInput
-        placeholder="ID ou Nome do Produto"
-        style={styles.input}
-        value={busca}
-        onChangeText={setBusca}
-      />
-      <TextInput
-        placeholder="Quantidade"
-        style={styles.input}
-        value={qtd}
-        onChangeText={setQtd}
-        keyboardType="decimal-pad"
-      />
-      <Pressable style={styles.btnAdd} onPress={adicionar}><Text style={styles.btnText}>Adicionar</Text></Pressable>
+      <View style={styles.row}>
+        <Input style={{ flex: 1 }} placeholder="ID do produto" value={produtoId} onChangeText={setProdutoId} />
+        <View style={{ width: 10 }} />
+        <Input style={{ width: 140 }} placeholder="Quantidade" value={quantidade} onChangeText={setQuantidade} keyboardType="decimal-pad" />
+        <View style={{ width: 10 }} />
+        <Pressable style={styles.addBtn} onPress={addItem}><Text style={styles.addTxt}>Adicionar</Text></Pressable>
+      </View>
 
+      <Text style={styles.subtitle}>Itens da comanda</Text>
       <FlatList
         data={itens}
-        keyExtractor={i => String(i.id)}
-        renderItem={({ item }) => (
-          <View style={styles.item}>
-            <View style={{flex:1}}>
-              <Text style={styles.itemTitle}>{item.produto_id}</Text>
-              <Text style={styles.itemSub}>{item.quantidade} x R$ {Number(item.preco_unit).toFixed(2)}</Text>
-            </View>
-            <Pressable onPress={() => removerItem(item.id)}><Text style={styles.remove}>Remover</Text></Pressable>
-          </View>
-        )}
-        ListEmptyComponent={<Text style={{color:'#666'}}>Sem itens ainda.</Text>}
+        keyExtractor={(_, i) => String(i)}
+        renderItem={renderItem}
+        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+        contentContainerStyle={{ paddingVertical: 10 }}
       />
 
-      <Text style={styles.total}>Total parcial: R$ {total.toFixed(2)}</Text>
-      <Pressable style={styles.btnFinish} onPress={finalizar}><Text style={styles.btnText}>Finalizar Comanda</Text></Pressable>
+      <View style={styles.footer}>
+        <Text style={styles.total}>Total: R$ {total.toFixed(2)}</Text>
+        <Pressable style={styles.finishBtn} onPress={finalizar}><Text style={styles.finishTxt}>Finalizar comanda</Text></Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex:1, padding:16, gap:10 },
-  title: { fontSize:20, fontWeight:'800' },
-  input: { backgroundColor:'#fff', borderWidth:1, borderColor:'#ddd', borderRadius:8, padding:10 },
-  btnAdd: { backgroundColor:'#2e7d32', padding:12, borderRadius:10, alignItems:'center' },
-  btnFinish: { backgroundColor:'#1565c0', padding:14, borderRadius:12, alignItems:'center', marginTop:6 },
-  btnText: { color:'#fff', fontWeight:'800' },
-  item: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', backgroundColor:'#fff', borderWidth:1, borderColor:'#eee', borderRadius:10, padding:12, marginTop:8 },
-  itemTitle: { fontWeight:'800' },
-  itemSub: { color: '#666', marginTop: 2 },
-  remove: { color: '#c62828', fontWeight: '700' },
-  total: { fontSize: 18, fontWeight: '800', marginTop: 8 }
+  container: { flex: 1, padding: 16 },
+  title: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 8 },
+  subtitle: { marginTop: 12, fontWeight: '800', color: '#0f172a' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  addBtn: { backgroundColor: '#2563eb', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10 },
+  addTxt: { color: '#fff', fontWeight: '900' },
+  item: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e5e7eb' },
+  itemNome: { fontWeight: '800', color: '#0f172a' },
+  itemSub: { color: '#475569', marginTop: 4 },
+  footer: { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  total: { fontSize: 18, fontWeight: '900', color: '#0f172a' },
+  finishBtn: { backgroundColor: '#16a34a', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12 },
+  finishTxt: { color: '#fff', fontWeight: '900' },
 });

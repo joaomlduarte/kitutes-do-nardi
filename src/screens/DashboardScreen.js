@@ -1,236 +1,140 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, useWindowDimensions } from 'react-native';
+// src/screens/DashboardScreen.js
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, FlatList, Dimensions, ScrollView } from 'react-native';
 import dayjs from 'dayjs';
 import { getDb } from '../storage/database';
-import { VictoryChart, VictoryAxis, VictoryBar, VictoryArea, VictoryTheme, VictoryTooltip, VictoryLabel } from 'victory-native';
+import { VictoryPie, VictoryChart, VictoryBar, VictoryAxis } from 'victory-native';
 
-/**
- * Dashboard bonito e responsivo:
- * - Cards de métricas do dia
- * - Gráfico de barras: Top produtos (hoje)
- * - Gráfico de área: Faturamento últimos 7 dias
- *
- * Observação: o banco salva vendas por data (YYYY-MM-DD).
- * Para o histórico de 7 dias, buscamos cada dia individualmente.
- */
+const { width } = Dimensions.get('window');
 
 export default function DashboardScreen() {
-  const { width } = useWindowDimensions();
-  const isWide = width >= 900; // tablet em paisagem
-  const [refreshing, setRefreshing] = useState(false);
+  const [dataRef, setDataRef] = useState(new Date());
+  const dataSql = dayjs(dataRef).format('YYYY-MM-DD');
+  const dataLabel = dayjs(dataRef).format('DD/MM/YYYY');
 
-  const [hojeTotal, setHojeTotal] = useState(0);
-  const [hojeQtdItens, setHojeQtdItens] = useState(0);
-  const [hojeQtdComandas, setHojeQtdComandas] = useState(0);
-  const [topProdutos, setTopProdutos] = useState([]); // [{x: 'Coxinha', y: 42}]
-  const [serie7d, setSerie7d] = useState([]); // [{x:'12/09', y: 120.5}]
+  const [vendas, setVendas] = useState([]);
+  const [produtos, setProdutos] = useState([]);
 
   useEffect(() => {
-    carregar();
-  }, []);
-
-  async function carregar() {
-    setRefreshing(true);
-    try {
+    async function load() {
       const db = await getDb();
-      const hoje = dayjs().format('YYYY-MM-DD');
-
-      // Produtos (para mapear id->nome)
-      const produtos = await db.getAllAsync('SELECT * FROM produtos ORDER BY nome ASC');
-      const nomePorId = new Map(produtos.map(p => [String(p.id), p.nome]));
-
-      // --- VENDAS HOJE (para cards e top produtos)
-      const vendasHoje = await db.getAllAsync('SELECT * FROM vendas WHERE data = ?', [hoje]);
-      const totalHoje = vendasHoje.reduce((s, v) => s + Number(v.quantidade) * Number(v.preco_unit), 0);
-      const qtdItensHoje = vendasHoje.reduce((s, v) => s + Number(v.quantidade), 0);
-      const comandasSet = new Set(vendasHoje.map(v => v.comanda));
-      const qtdComandasHoje = comandasSet.size;
-
-      // Top produtos (por valor arrecadado no dia)
-      const porProduto = new Map();
-      for (const v of vendasHoje) {
-        const key = String(v.produto_id);
-        const valor = Number(v.quantidade) * Number(v.preco_unit);
-        porProduto.set(key, (porProduto.get(key) || 0) + valor);
-      }
-      // pega os 6 melhores e troca id -> nome
-      const top = Array.from(porProduto.entries())
-        .map(([id, valor]) => ({ id, nome: nomePorId.get(id) || id, valor }))
-        .sort((a, b) => b.valor - a.valor)
-        .slice(0, 6)
-        .map((it) => ({ x: it.nome, y: Number(it.valor.toFixed(2)) }));
-
-      // --- Últimos 7 dias (de hoje -6 até hoje)
-      const serie = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = dayjs().subtract(i, 'day');
-        const dataStr = d.format('YYYY-MM-DD');
-        const vendasDia = await db.getAllAsync('SELECT quantidade, preco_unit FROM vendas WHERE data = ?', [dataStr]);
-        const total = vendasDia.reduce((s, v) => s + Number(v.quantidade) * Number(v.preco_unit), 0);
-        serie.push({ x: d.format('DD/MM'), y: Number(total.toFixed(2)) });
-      }
-
-      setHojeTotal(Number(totalHoje.toFixed(2)));
-      setHojeQtdItens(qtdItensHoje);
-      setHojeQtdComandas(qtdComandasHoje);
-      setTopProdutos(top);
-      setSerie7d(serie);
-    } finally {
-      setRefreshing(false);
+      const vs = await db.getAllAsync('SELECT * FROM vendas WHERE data = ?', [dataSql]);
+      const ps = await db.getAllAsync('SELECT * FROM produtos');
+      setVendas(vs);
+      setProdutos(ps);
     }
-  }
+    load();
+  }, [dataSql]);
 
-  const cards = useMemo(() => ([
-    { title: 'Faturamento (hoje)', value: `R$ ${hojeTotal.toFixed(2)}` },
-    { title: 'Itens vendidos (hoje)', value: String(hojeQtdItens) },
-    { title: 'Comandas fechadas (hoje)', value: String(hojeQtdComandas) },
-  ]), [hojeTotal, hojeQtdItens, hojeQtdComandas]);
+  const nomePorId = useMemo(() => new Map(produtos.map(p => [String(p.id), p.nome])), [produtos]);
+
+  const resumo = useMemo(() => {
+    let total = 0;
+    let qtdItens = 0;
+    const porProduto = new Map(); // nome -> { qtd, total }
+    const porComanda = new Map(); // comanda -> total
+
+    for (const v of vendas) {
+      const qtd = Number(v.quantidade) || 0;
+      const unit = Number(v.preco_unit) || 0;
+      const tot = qtd * unit;
+      total += tot;
+      qtdItens += qtd;
+
+      const nome = nomePorId.get(String(v.produto_id)) || String(v.produto_id);
+      const acc = porProduto.get(nome) || { qtd: 0, total: 0 };
+      acc.qtd += qtd;
+      acc.total += tot;
+      porProduto.set(nome, acc);
+
+      porComanda.set(v.comanda, (porComanda.get(v.comanda) || 0) + tot);
+    }
+
+    const topProdutos = Array.from(porProduto.entries())
+      .map(([nome, v]) => ({ nome, qtd: v.qtd, total: v.total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6);
+
+    const porComandaArr = Array.from(porComanda.entries())
+      .map(([comanda, total]) => ({ comanda, total }))
+      .sort((a, b) => b.total - a.total);
+
+    return { total, qtdItens, topProdutos, porComandaArr };
+  }, [vendas, nomePorId]);
+
+  const graficoPieData = resumo.topProdutos.length
+    ? resumo.topProdutos.map((p) => ({ x: p.nome, y: Number(p.total.toFixed(2)) }))
+    : [{ x: 'Sem vendas', y: 1 }];
+
+  const graficoBarData = resumo.porComandaArr.length
+    ? resumo.porComandaArr.slice(0, 8).map((c) => ({ x: `#${c.comanda}`, y: Number(c.total.toFixed(2)) }))
+    : [{ x: '-', y: 0 }];
 
   return (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={[styles.container, isWide && styles.containerWide]}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={carregar} />}
-    >
-      {/* HEADER */}
-      <View style={[styles.headerRow, isWide && styles.headerRowWide]}>
-        <Text style={styles.title}>Dashboard</Text>
-        <Text style={styles.subtitle}>{dayjs().format('[Hoje] ddd, DD/MM/YYYY')}</Text>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 16 }}>
+      <Text style={styles.title}>Visão geral — {dataLabel}</Text>
+
+      <View style={styles.cardsRow}>
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Arrecadação do dia</Text>
+          <Text style={styles.cardValue}>R$ {resumo.total.toFixed(2)}</Text>
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Itens vendidos</Text>
+          <Text style={styles.cardValue}>{resumo.qtdItens}</Text>
+        </View>
       </View>
 
-      {/* CARDS */}
-      <View style={[styles.cards, isWide && styles.cardsWide]}>
-        {cards.map((c, idx) => (
-          <View key={idx} style={styles.card}>
-            <Text style={styles.cardTitle}>{c.title}</Text>
-            <Text style={styles.cardValue}>{c.value}</Text>
+      <Text style={styles.section}>Produtos que mais saíram</Text>
+      <View style={styles.chartWrap}>
+        <VictoryPie
+          width={width - 32}
+          height={260}
+          data={graficoPieData}
+          labels={({ datum }) => `${datum.x}\nR$ ${datum.y.toFixed?.(2) ?? datum.y}`}
+          innerRadius={60}
+          padAngle={2}
+        />
+      </View>
+
+      <Text style={styles.section}>Comandas com maior consumo</Text>
+      <View style={styles.chartWrap}>
+        <VictoryChart width={width - 32} height={260} domainPadding={{ x: 20, y: 20 }}>
+          <VictoryAxis style={{ tickLabels: { angle: -25, fontSize: 10 } }} />
+          <VictoryAxis dependentAxis />
+          <VictoryBar data={graficoBarData} />
+        </VictoryChart>
+      </View>
+
+      <Text style={styles.section}>Top produtos (lista)</Text>
+      <FlatList
+        data={resumo.topProdutos}
+        keyExtractor={(i, idx) => String(idx)}
+        renderItem={({ item }) => (
+          <View style={styles.itemRow}>
+            <Text style={styles.itemName}>{item.nome}</Text>
+            <Text style={styles.itemRight}>Qtd: {item.qtd} • R$ {item.total.toFixed(2)}</Text>
           </View>
-        ))}
-      </View>
-
-      {/* GRAFICOS */}
-      <View style={[styles.chartsRow, isWide && styles.chartsRowWide]}>
-        {/* Top produtos (barras) */}
-        <View style={[styles.chartBox, isWide && styles.chartBoxWide]}>
-          <Text style={styles.chartTitle}>Top produtos (hoje)</Text>
-          {topProdutos.length === 0 ? (
-            <Text style={styles.empty}>Sem vendas hoje.</Text>
-          ) : (
-            <VictoryChart
-              theme={VictoryTheme.material}
-              domainPadding={{ x: [20, 20], y: 30 }}
-              padding={{ top: 30, left: 60, right: 20, bottom: 80 }}
-              height={320}
-            >
-              <VictoryAxis
-                style={{
-                  tickLabels: { angle: -30, fontSize: 11, padding: 18 },
-                  grid: { stroke: '#eee' },
-                }}
-              />
-              <VictoryAxis
-                dependentAxis
-                tickFormat={(t) => `R$ ${t}`}
-                style={{ grid: { stroke: '#f1f1f1' }, tickLabels: { fontSize: 11 } }}
-              />
-              <VictoryBar
-                data={topProdutos}
-                labels={({ datum }) => `R$ ${datum.y.toFixed(2)}`}
-                labelComponent={<VictoryTooltip flyoutPadding={6} />}
-                barRatio={0.8}
-                cornerRadius={{ top: 6 }}
-              />
-            </VictoryChart>
-          )}
-        </View>
-
-        {/* Série 7 dias (área) */}
-        <View style={[styles.chartBox, isWide && styles.chartBoxWide]}>
-          <Text style={styles.chartTitle}>Faturamento • últimos 7 dias</Text>
-          {serie7d.length === 0 ? (
-            <Text style={styles.empty}>Sem dados.</Text>
-          ) : (
-            <VictoryChart
-              theme={VictoryTheme.material}
-              padding={{ top: 30, left: 60, right: 20, bottom: 50 }}
-              height={320}
-            >
-              <VictoryAxis
-                style={{ tickLabels: { fontSize: 11 }, grid: { stroke: '#eee' } }}
-              />
-              <VictoryAxis
-                dependentAxis
-                tickFormat={(t) => `R$ ${t}`}
-                style={{ grid: { stroke: '#f1f1f1' }, tickLabels: { fontSize: 11 } }}
-              />
-              <VictoryArea
-                data={serie7d}
-                interpolation="monotoneX"
-                labels={({ datum }) => `R$ ${datum.y.toFixed(2)}`}
-                labelComponent={<VictoryTooltip flyoutPadding={6} />}
-                style={{
-                  data: { opacity: 0.9 },
-                }}
-              />
-            </VictoryChart>
-          )}
-        </View>
-      </View>
-
-      {/* Rodapé leve */}
-      <View style={{ height: 16 }} />
-      <Text style={styles.legend}>
-        Toque e arraste nos gráficos para ver os valores (tooltip).
-      </Text>
-      <View style={{ height: 24 }} />
+        )}
+        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+        ListEmptyComponent={<Text style={styles.empty}>Sem vendas no dia.</Text>}
+        contentContainerStyle={{ paddingBottom: 16 }}
+      />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, gap: 16 },
-  containerWide: { paddingHorizontal: 24, maxWidth: 1200, alignSelf: 'center' },
-
-  headerRow: { gap: 6 },
-  headerRowWide: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
-
-  title: { fontSize: 26, fontWeight: '800' },
-  subtitle: { color: '#6A6A6A', fontWeight: '600' },
-
-  cards: { gap: 12 },
-  cardsWide: { flexDirection: 'row' },
-
-  card: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  cardTitle: { color: '#6A6A6A', fontWeight: '700' },
-  cardValue: { marginTop: 6, fontSize: 22, fontWeight: '900' },
-
-  chartsRow: { gap: 16 },
-  chartsRowWide: { flexDirection: 'row' },
-
-  chartBox: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    borderRadius: 16,
-    padding: 12,
-  },
-  chartBoxWide: { minWidth: 0 },
-
-  chartTitle: { fontSize: 16, fontWeight: '800', marginBottom: 6 },
-  empty: { color: '#888', padding: 8 },
-
-  legend: { alignSelf: 'center', color: '#8a8a8a' },
+  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
+  title: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
+  cardsRow: { flexDirection: 'row', gap: 12 },
+  card: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#e5e7eb' },
+  cardLabel: { color: '#64748b', marginBottom: 6, fontWeight: '600' },
+  cardValue: { fontSize: 20, fontWeight: '900', color: '#0f172a' },
+  section: { marginTop: 16, fontWeight: '800', color: '#0f172a' },
+  chartWrap: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#e5e7eb', marginTop: 8 },
+  itemRow: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e5e7eb', flexDirection: 'row', justifyContent: 'space-between' },
+  itemName: { fontWeight: '800', color: '#0f172a' },
+  itemRight: { color: '#475569' },
+  empty: { color: '#64748b', textAlign: 'center', marginTop: 8 },
 });

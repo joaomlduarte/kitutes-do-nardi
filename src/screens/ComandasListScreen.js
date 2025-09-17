@@ -1,105 +1,96 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, StyleSheet, Alert } from 'react-native';
+// src/screens/ComandasListScreen.js
+import React, { useState } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet, Alert } from 'react-native';
 import dayjs from 'dayjs';
-import { getDb } from '../storage/database';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import Input from '../components/Input';
 
-export default function ComandasListScreen() {
-  const [nome, setNome] = useState('');
-  const [lista, setLista] = useState([]);
-  const isFocused = useIsFocused();
-  const nav = useNavigation();
+export default function ComandasListScreen({ navigation }) {
+  const [novaId, setNovaId] = useState('');
+  const [comandas, setComandas] = useState([]); // [{id, abertaEm}]
 
-  useEffect(() => { if (isFocused) carregar(); }, [isFocused]);
-
-  async function carregar() {
-    const db = await getDb();
-    const rows = await db.getAllAsync('SELECT * FROM comandas_abertas ORDER BY criada_em DESC');
-    const enrich = await Promise.all(rows.map(async c => {
-      const trow = await db.getAllAsync(
-        'SELECT SUM(quantidade*preco_unit) AS TOTAL FROM itens_abertos WHERE comanda_id = ?',
-        [c.id]
-      );
-      const total = Number(trow?.[0]?.TOTAL || trow?.[0]?.total || 0);
-      return { ...c, total };
-    }));
-    setLista(enrich);
-  }
-
-  async function criar() {
-    const nomeTrim = nome.trim();
-    if (!nomeTrim) { Alert.alert('Informe um nome/numero da comanda'); return; }
-    const db = await getDb();
-    const id = `${Date.now()}`;
-    await db.runAsync(
-      'INSERT INTO comandas_abertas (id, nome, criada_em) VALUES (?, ?, ?)',
-      [id, nomeTrim, dayjs().toISOString()]
-    );
-    setNome('');
-    await carregar();
-    nav.navigate('Comanda', { comandaId: id, comandaNome: nomeTrim });
+  function criarComanda() {
+    const id = (novaId || '').trim();
+    if (!id) {
+      Alert.alert('Informe o número/identificação da comanda.');
+      return;
+    }
+    if (comandas.some(c => c.id === id)) {
+      Alert.alert('Comanda já existe', 'Escolha outro identificador.');
+      return;
+    }
+    setComandas(prev => [{ id, abertaEm: new Date().toISOString() }, ...prev]);
+    setNovaId('');
   }
 
   function abrir(c) {
-    nav.navigate('Comanda', { comandaId: c.id, comandaNome: c.nome });
+    navigation.navigate('ComandaDetail', { comandaId: c.id });
   }
 
-  async function remover(c) {
-    Alert.alert('Remover comanda', `Excluir a comanda "${c.nome}"?`, [
-      { text: 'Cancelar' },
-      { text: 'Remover', style: 'destructive', onPress: async () => {
-        const db = await getDb();
-        await db.runAsync('DELETE FROM comandas_abertas WHERE id = ?', [c.id]);
-        await carregar();
-      }}
-    ]);
+  function remover(c) {
+    setComandas(prev => prev.filter(x => x.id !== c.id));
   }
+
+  const renderItem = ({ item }) => (
+    <Pressable onPress={() => abrir(item)} style={styles.card}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.cardTitle}>Comanda #{item.id}</Text>
+        <Text style={styles.cardSub}>Aberta: {dayjs(item.abertaEm).format('HH:mm DD/MM')}</Text>
+      </View>
+      <Pressable onPress={() => remover(item)} style={styles.remover}>
+        <Text style={styles.removerTxt}>Fechar/Excluir</Text>
+      </Pressable>
+    </Pressable>
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Comandas Abertas</Text>
+      <Text style={styles.title}>Comandas em aberto</Text>
 
       <View style={styles.row}>
-        <TextInput
-          placeholder="Nome/Número da nova comanda"
-          style={styles.input}
-          value={nome}
-          onChangeText={setNome}
+        <Input
+          style={{ flex: 1 }}
+          placeholder="Número/ID da comanda"
+          value={novaId}
+          onChangeText={setNovaId}
+          autoCapitalize="none"
+          keyboardType="default"
         />
-        <Pressable style={styles.btn} onPress={criar}><Text style={styles.btnText}>Criar</Text></Pressable>
+        <View style={{ width: 10 }} />
+        <Pressable style={styles.addBtn} onPress={criarComanda}>
+          <Text style={styles.addTxt}>Criar</Text>
+        </Pressable>
       </View>
 
       <FlatList
-        data={lista}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <Pressable onPress={() => abrir(item)} style={styles.item}>
-            <View style={{flex:1}}>
-              <Text style={styles.itemTitle}>{item.nome}</Text>
-              <Text style={styles.itemSub}>{dayjs(item.criada_em).format('DD/MM HH:mm')}</Text>
-            </View>
-            <View style={{alignItems:'flex-end'}}>
-              <Text style={styles.total}>R$ {item.total.toFixed(2)}</Text>
-              <Pressable onPress={() => remover(item)}><Text style={styles.remove}>Remover</Text></Pressable>
-            </View>
-          </Pressable>
-        )}
-        ListEmptyComponent={<Text style={{color:'#666', marginTop:12}}>Nenhuma comanda aberta.</Text>}
+        data={comandas}
+        keyExtractor={(i) => i.id}
+        renderItem={renderItem}
+        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        contentContainerStyle={{ paddingVertical: 10 }}
+        ListEmptyComponent={<Text style={styles.empty}>Nenhuma comanda aberta.</Text>}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex:1, padding:16, gap:12 },
-  title: { fontSize:22, fontWeight:'800' },
-  row: { flexDirection:'row', gap:8 },
-  input: { flex:1, backgroundColor:'#fff', borderWidth:1, borderColor:'#ddd', borderRadius:8, padding:10 },
-  btn: { backgroundColor:'#2e7d32', paddingHorizontal:16, borderRadius:8, justifyContent:'center' },
-  btnText: { color:'#fff', fontWeight:'800' },
-  item: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', backgroundColor:'#fff', borderWidth:1, borderColor:'#eee', borderRadius:10, padding:12, marginTop:8 },
-  itemTitle: { fontWeight:'800' },
-  itemSub: { color:'#666', marginTop:2 },
-  total: { fontWeight:'800' },
-  remove: { marginTop:6, color:'#c62828', fontWeight:'700' }
+  container: { flex: 1, padding: 16 },
+  title: { fontSize: 20, fontWeight: '800', marginBottom: 8, color: '#0f172a' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  addBtn: { backgroundColor: '#2563eb', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
+  addTxt: { color: '#fff', fontWeight: '900' },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  cardTitle: { fontWeight: '800', color: '#0f172a' },
+  cardSub: { color: '#475569', marginTop: 4 },
+  remover: { backgroundColor: '#ef4444', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  removerTxt: { color: '#fff', fontWeight: '800' },
+  empty: { color: '#64748b', textAlign: 'center', marginTop: 16 },
 });

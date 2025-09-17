@@ -1,21 +1,12 @@
+// src/screens/ExportarScreen.js
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform, Alert } from 'react-native';
 import dayjs from 'dayjs';
 import { getDb } from '../storage/database';
-import * as FileSystem from 'expo-file-system/legacy'; // <<<<<< API LEGACY
+import * as FileSystem from 'expo-file-system/legacy'; // API legacy para writeAsStringAsync
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import DateTimePicker from '@react-native-community/datetimepicker';
-
-/**
- * Exporta um XLSX com:
- *  - Aba "Resumo": Produto, Quantidade, Total por produto e Total geral (para a data escolhida)
- *  - Aba "Vendas": linhas detalhadas (comanda, produto_id, nome, quantidade, preço unit, total)
- *
- * Observações:
- * - Mobile: usa XLSX.write(..., { type: 'base64' }) e salva com expo-file-system/legacy (writeAsStringAsync).
- * - Web: usa Blob (type: 'array') e força download.
- */
 
 export default function ExportarScreen() {
   const [data, setData] = useState(new Date());
@@ -41,7 +32,6 @@ export default function ExportarScreen() {
       const qtd = Number(v.quantidade) || 0;
       const unit = Number(v.preco_unit) || 0;
       const tot = qtd * unit;
-
       totalGeral += tot;
 
       const acc = mapa.get(id) || { nome, qtd: 0, total: 0 };
@@ -83,6 +73,7 @@ export default function ExportarScreen() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheetResumo, 'Resumo');
     XLSX.utils.book_append_sheet(wb, sheetVendas, 'Vendas');
+
     return wb;
   }
 
@@ -104,11 +95,8 @@ export default function ExportarScreen() {
       return;
     }
 
-    // Mobile (API legacy)
     const wboutB64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
     const uri = FileSystem.documentDirectory + filename;
-
-    // usando string literal 'base64' (compatível com diversas versões)
     await FileSystem.writeAsStringAsync(uri, wboutB64, { encoding: 'base64' });
 
     const canShare = await Sharing.isAvailableAsync();
@@ -137,12 +125,6 @@ export default function ExportarScreen() {
     }
   }
 
-  function abrirPicker() { setPickerVisible(true); }
-  function onChangeDate(_, selected) {
-    setPickerVisible(false);
-    if (selected) setData(selected);
-  }
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Exportar para Excel (XLSX)</Text>
@@ -150,7 +132,7 @@ export default function ExportarScreen() {
 
       <View style={styles.dateRow}>
         <Text style={styles.dateLabel}>Data:</Text>
-        <Pressable onPress={abrirPicker} style={styles.dateBtn}>
+        <Pressable onPress={() => setPickerVisible(true)} style={styles.dateBtn}>
           <Text style={styles.dateBtnText}>{dayjs(data).format('DD/MM/YYYY')}</Text>
         </Pressable>
       </View>
@@ -158,7 +140,7 @@ export default function ExportarScreen() {
       {pickerVisible && (
         <DateTimePicker
           value={data}
-          onChange={onChangeDate}
+          onChange={(_, d) => { setPickerVisible(false); if (d) setData(d); }}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
         />
@@ -175,28 +157,16 @@ export default function ExportarScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 16 },
-  title: { fontSize: 22, fontWeight: '800' },
-  hint: { color: '#707070' },
+  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
+  title: { fontSize: 22, fontWeight: '800', color: '#0f172a' },
+  hint: { color: '#707070', marginTop: 4 },
 
-  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dateLabel: { fontWeight: '700' },
-  dateBtn: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  dateBtnText: { fontWeight: '800' },
+  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+  dateLabel: { fontWeight: '700', color: '#0f172a' },
+  dateBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
+  dateBtnText: { fontWeight: '800', color: '#0f172a' },
 
-  exportBtn: {
-    backgroundColor: '#1565c0',
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
+  exportBtn: { marginTop: 16, backgroundColor: '#1565c0', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   exportText: { color: '#fff', fontWeight: '900' },
   footnote: { color: '#888' },
 });
