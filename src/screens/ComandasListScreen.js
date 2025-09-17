@@ -1,39 +1,68 @@
 // src/screens/ComandasListScreen.js
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, Alert } from 'react-native';
-import dayjs from 'dayjs';
 import Input from '../components/Input';
+import dayjs from 'dayjs';
+import { getDb } from '../storage/database';
 import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ComandasListScreen({ navigation }) {
   const [novaId, setNovaId] = useState('');
-  const [comandas, setComandas] = useState([]); // [{id, abertaEm}]
+  const [comandas, setComandas] = useState([]); // [{id, aberta_em}]
 
-  function criarComanda() {
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', carregar);
+    carregar();
+    return unsubscribe;
+  }, [navigation]);
+
+  async function carregar() {
+    const db = await getDb();
+    // ORDER BY alfabético, case-insensitive
+    const lista = await db.getAllAsync('SELECT id, aberta_em FROM comandas ORDER BY id COLLATE NOCASE ASC');
+    setComandas(lista);
+  }
+
+  async function criarComanda() {
     const id = (novaId || '').trim();
     if (!id) {
-      Alert.alert('Informe o número/identificação da comanda.');
+      Alert.alert('Informe o nome/número da comanda.');
       return;
     }
-    if (comandas.some(c => c.id === id)) {
+    const db = await getDb();
+    const existe = await db.getAllAsync('SELECT id FROM comandas WHERE id = ?', [id]);
+    if (existe.length) {
       Alert.alert('Comanda já existe', 'Escolha outro identificador.');
       return;
     }
-    setComandas(prev => [{ id, abertaEm: new Date().toISOString() }, ...prev]);
+    await db.runAsync('INSERT INTO comandas (id, aberta_em) VALUES (?, ?)', [
+      id,
+      dayjs().toISOString(),
+    ]);
     setNovaId('');
+    await carregar();
   }
 
-  function abrir(c) { navigation.navigate('ComandaDetail', { comandaId: c.id }); }
-  function remover(c) { setComandas(prev => prev.filter(x => x.id !== c.id)); }
+  function abrir(c) {
+    navigation.navigate('ComandaDetail', { comandaId: c.id });
+  }
+
+  async function excluir(c) {
+    const db = await getDb();
+    await db.runAsync('DELETE FROM comandas WHERE id = ?', [c.id]);
+    await carregar();
+  }
 
   const renderItem = ({ item }) => (
     <Pressable onPress={() => abrir(item)} style={styles.card}>
       <View style={{ flex: 1 }}>
         <Text style={styles.cardTitle}>Comanda #{item.id}</Text>
-        <Text style={styles.cardSub}>Aberta: {dayjs(item.abertaEm).format('HH:mm DD/MM')}</Text>
+        <Text style={styles.cardSub}>
+          Aberta: {dayjs(item.aberta_em).format('HH:mm DD/MM/YYYY')}
+        </Text>
       </View>
-      <Pressable onPress={() => remover(item)} style={styles.remover}>
-        <Text style={styles.removerTxt}>Fechar/Excluir</Text>
+      <Pressable onPress={() => excluir(item)} style={styles.remover}>
+        <Text style={styles.removerTxt}>Excluir</Text>
       </Pressable>
     </Pressable>
   );
@@ -45,7 +74,7 @@ export default function ComandasListScreen({ navigation }) {
       <View style={styles.row}>
         <Input
           style={{ flex: 1 }}
-          placeholder="Número/ID da comanda"
+          placeholder="Nome/ID da comanda"
           value={novaId}
           onChangeText={setNovaId}
         />
@@ -70,7 +99,7 @@ export default function ComandasListScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
   title: { fontSize: FONT.size.xl, fontWeight: '800', marginBottom: SPACING.sm, color: COLORS.text },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },
   addBtn: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: SPACING.xl,
