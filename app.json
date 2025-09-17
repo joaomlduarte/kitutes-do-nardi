@@ -4,11 +4,11 @@
     "slug": "kitutes-do-nardi",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon_Bird_512x512.png",
     "scheme": "kitutesdonardi",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/icon_Bird_512x512.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -22,7 +22,7 @@
       "package": "com.seunome.kitutesdonardi",
       "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon_Bird_512x512.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": []
