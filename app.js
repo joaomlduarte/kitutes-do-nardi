@@ -11,6 +11,7 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import HistoricoScreen from './src/screens/HistoricoScreen';
 import ExportarScreen from './src/screens/ExportarScreen';
 import ConfigScreen from './src/screens/ConfigScreen';
+import { COLORS } from './src/theme';
 
 const Tab = createBottomTabNavigator();
 
@@ -18,25 +19,25 @@ const LightTheme = {
   ...DefaultTheme,
   colors: {
     ...DefaultTheme.colors,
-    background: '#f8fafc',
-    card: '#ffffff',
-    text: '#0f172a',
-    border: '#e5e7eb',
-    primary: '#2563eb',
+    background: COLORS.bg,
+    card: COLORS.card,
+    text: COLORS.text,
+    border: COLORS.border,
+    primary: COLORS.primary,
   },
 };
 
 export default function App() {
   return (
     <NavigationContainer theme={LightTheme}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.card} />
       <Tab.Navigator
         screenOptions={({ route }) => ({
-          headerStyle: { backgroundColor: '#ffffff' },
-          headerTitleStyle: { color: '#0f172a', fontWeight: '800' },
-          tabBarActiveTintColor: '#2563eb',
+          headerStyle: { backgroundColor: COLORS.card },
+          headerTitleStyle: { color: COLORS.text, fontWeight: '800' },
+          tabBarActiveTintColor: COLORS.primary,
           tabBarInactiveTintColor: '#64748b',
-          tabBarStyle: { backgroundColor: '#ffffff' },
+          tabBarStyle: { backgroundColor: COLORS.card },
           tabBarIcon: ({ color, size }) => {
             const map = {
               Comandas: 'receipt',

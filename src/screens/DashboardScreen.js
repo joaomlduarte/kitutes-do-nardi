@@ -4,6 +4,7 @@ import { View, Text, StyleSheet, FlatList, Dimensions, ScrollView } from 'react-
 import dayjs from 'dayjs';
 import { getDb } from '../storage/database';
 import { VictoryPie, VictoryChart, VictoryBar, VictoryAxis } from 'victory-native';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 const { width } = Dimensions.get('window');
 
@@ -31,8 +32,8 @@ export default function DashboardScreen() {
   const resumo = useMemo(() => {
     let total = 0;
     let qtdItens = 0;
-    const porProduto = new Map(); // nome -> { qtd, total }
-    const porComanda = new Map(); // comanda -> total
+    const porProduto = new Map();
+    const porComanda = new Map();
 
     for (const v of vendas) {
       const qtd = Number(v.quantidade) || 0;
@@ -71,7 +72,7 @@ export default function DashboardScreen() {
     : [{ x: '-', y: 0 }];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 16 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: SPACING.xl }}>
       <Text style={styles.title}>Visão geral — {dataLabel}</Text>
 
       <View style={styles.cardsRow}>
@@ -88,7 +89,7 @@ export default function DashboardScreen() {
       <Text style={styles.section}>Produtos que mais saíram</Text>
       <View style={styles.chartWrap}>
         <VictoryPie
-          width={width - 32}
+          width={width - SPACING.xl * 2}
           height={260}
           data={graficoPieData}
           labels={({ datum }) => `${datum.x}\nR$ ${datum.y.toFixed?.(2) ?? datum.y}`}
@@ -99,7 +100,7 @@ export default function DashboardScreen() {
 
       <Text style={styles.section}>Comandas com maior consumo</Text>
       <View style={styles.chartWrap}>
-        <VictoryChart width={width - 32} height={260} domainPadding={{ x: 20, y: 20 }}>
+        <VictoryChart width={width - SPACING.xl * 2} height={260} domainPadding={{ x: 20, y: 20 }}>
           <VictoryAxis style={{ tickLabels: { angle: -25, fontSize: 10 } }} />
           <VictoryAxis dependentAxis />
           <VictoryBar data={graficoBarData} />
@@ -116,25 +117,25 @@ export default function DashboardScreen() {
             <Text style={styles.itemRight}>Qtd: {item.qtd} • R$ {item.total.toFixed(2)}</Text>
           </View>
         )}
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm + 2 }} />}
         ListEmptyComponent={<Text style={styles.empty}>Sem vendas no dia.</Text>}
-        contentContainerStyle={{ paddingBottom: 16 }}
+        contentContainerStyle={{ paddingBottom: SPACING.lg }}
       />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
-  title: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
-  cardsRow: { flexDirection: 'row', gap: 12 },
-  card: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#e5e7eb' },
-  cardLabel: { color: '#64748b', marginBottom: 6, fontWeight: '600' },
-  cardValue: { fontSize: 20, fontWeight: '900', color: '#0f172a' },
-  section: { marginTop: 16, fontWeight: '800', color: '#0f172a' },
-  chartWrap: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#e5e7eb', marginTop: 8 },
-  itemRow: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e5e7eb', flexDirection: 'row', justifyContent: 'space-between' },
-  itemName: { fontWeight: '800', color: '#0f172a' },
-  itemRight: { color: '#475569' },
-  empty: { color: '#64748b', textAlign: 'center', marginTop: 8 },
+  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
+  title: { fontSize: FONT.size.xl, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.lg },
+  cardsRow: { flexDirection: 'row', gap: SPACING.lg },
+  card: { flex: 1, backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.xl, borderWidth: 1, borderColor: COLORS.border },
+  cardLabel: { color: '#64748b', marginBottom: SPACING.sm, fontWeight: '600' },
+  cardValue: { fontSize: FONT.size.xl, fontWeight: '900', color: COLORS.text },
+  section: { marginTop: SPACING.lg, fontWeight: '800', color: COLORS.text },
+  chartWrap: { backgroundColor: COLORS.card, borderRadius: RADII.lg, paddingVertical: SPACING.sm, borderWidth: 1, borderColor: COLORS.border, marginTop: SPACING.sm },
+  itemRow: { backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between' },
+  itemName: { fontWeight: '800', color: COLORS.text },
+  itemRight: { color: COLORS.textMuted },
+  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.sm },
 });

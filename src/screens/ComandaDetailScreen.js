@@ -4,6 +4,7 @@ import { View, Text, FlatList, Pressable, StyleSheet, Alert } from 'react-native
 import Input from '../components/Input';
 import { getDb } from '../storage/database';
 import dayjs from 'dayjs';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ComandaDetailScreen({ route, navigation }) {
   const { comandaId } = route.params;
@@ -77,9 +78,9 @@ export default function ComandaDetailScreen({ route, navigation }) {
 
       <View style={styles.row}>
         <Input style={{ flex: 1 }} placeholder="ID do produto" value={produtoId} onChangeText={setProdutoId} />
-        <View style={{ width: 10 }} />
+        <View style={{ width: SPACING.md }} />
         <Input style={{ width: 140 }} placeholder="Quantidade" value={quantidade} onChangeText={setQuantidade} keyboardType="decimal-pad" />
-        <View style={{ width: 10 }} />
+        <View style={{ width: SPACING.md }} />
         <Pressable style={styles.addBtn} onPress={addItem}><Text style={styles.addTxt}>Adicionar</Text></Pressable>
       </View>
 
@@ -88,8 +89,8 @@ export default function ComandaDetailScreen({ route, navigation }) {
         data={itens}
         keyExtractor={(_, i) => String(i)}
         renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-        contentContainerStyle={{ paddingVertical: 10 }}
+        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm + 2 }} />}
+        contentContainerStyle={{ paddingVertical: SPACING.md }}
       />
 
       <View style={styles.footer}>
@@ -101,17 +102,19 @@ export default function ComandaDetailScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  title: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 8 },
-  subtitle: { marginTop: 12, fontWeight: '800', color: '#0f172a' },
+  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
+  title: { fontSize: FONT.size.lg, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.sm },
+  subtitle: { marginTop: SPACING.lg, fontWeight: '800', color: COLORS.text },
   row: { flexDirection: 'row', alignItems: 'center' },
-  addBtn: { backgroundColor: '#2563eb', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10 },
+  addBtn: { backgroundColor: COLORS.primary, paddingHorizontal: SPACING.xl - 2, paddingVertical: SPACING.lg, borderRadius: RADII.md },
   addTxt: { color: '#fff', fontWeight: '900' },
-  item: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e5e7eb' },
-  itemNome: { fontWeight: '800', color: '#0f172a' },
-  itemSub: { color: '#475569', marginTop: 4 },
-  footer: { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  total: { fontSize: 18, fontWeight: '900', color: '#0f172a' },
-  finishBtn: { backgroundColor: '#16a34a', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12 },
+
+  item: { backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.border },
+  itemNome: { fontWeight: '800', color: COLORS.text },
+  itemSub: { color: COLORS.textMuted, marginTop: 4 },
+
+  footer: { marginTop: SPACING.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  total: { fontSize: FONT.size.lg, fontWeight: '900', color: COLORS.text },
+  finishBtn: { backgroundColor: COLORS.success, paddingHorizontal: SPACING.xl, paddingVertical: SPACING.lg, borderRadius: RADII.lg },
   finishTxt: { color: '#fff', fontWeight: '900' },
 });

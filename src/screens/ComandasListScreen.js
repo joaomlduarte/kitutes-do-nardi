@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, Alert } from 'react-native';
 import dayjs from 'dayjs';
 import Input from '../components/Input';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ComandasListScreen({ navigation }) {
   const [novaId, setNovaId] = useState('');
@@ -22,13 +23,8 @@ export default function ComandasListScreen({ navigation }) {
     setNovaId('');
   }
 
-  function abrir(c) {
-    navigation.navigate('ComandaDetail', { comandaId: c.id });
-  }
-
-  function remover(c) {
-    setComandas(prev => prev.filter(x => x.id !== c.id));
-  }
+  function abrir(c) { navigation.navigate('ComandaDetail', { comandaId: c.id }); }
+  function remover(c) { setComandas(prev => prev.filter(x => x.id !== c.id)); }
 
   const renderItem = ({ item }) => (
     <Pressable onPress={() => abrir(item)} style={styles.card}>
@@ -52,10 +48,8 @@ export default function ComandasListScreen({ navigation }) {
           placeholder="Número/ID da comanda"
           value={novaId}
           onChangeText={setNovaId}
-          autoCapitalize="none"
-          keyboardType="default"
         />
-        <View style={{ width: 10 }} />
+        <View style={{ width: SPACING.md }} />
         <Pressable style={styles.addBtn} onPress={criarComanda}>
           <Text style={styles.addTxt}>Criar</Text>
         </Pressable>
@@ -65,8 +59,8 @@ export default function ComandasListScreen({ navigation }) {
         data={comandas}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        contentContainerStyle={{ paddingVertical: 10 }}
+        ItemSeparatorComponent={() => <View style={{ height: SPACING.md }} />}
+        contentContainerStyle={{ paddingVertical: SPACING.md }}
         ListEmptyComponent={<Text style={styles.empty}>Nenhuma comanda aberta.</Text>}
       />
     </View>
@@ -74,23 +68,28 @@ export default function ComandasListScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  title: { fontSize: 20, fontWeight: '800', marginBottom: 8, color: '#0f172a' },
+  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
+  title: { fontSize: FONT.size.xl, fontWeight: '800', marginBottom: SPACING.sm, color: COLORS.text },
   row: { flexDirection: 'row', alignItems: 'center' },
-  addBtn: { backgroundColor: '#2563eb', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10 },
+  addBtn: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.lg,
+    borderRadius: RADII.md,
+  },
   addTxt: { color: '#fff', fontWeight: '900' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: COLORS.card,
+    borderRadius: RADII.lg,
+    padding: SPACING.lg + 2,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: COLORS.border,
   },
-  cardTitle: { fontWeight: '800', color: '#0f172a' },
-  cardSub: { color: '#475569', marginTop: 4 },
-  remover: { backgroundColor: '#ef4444', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  cardTitle: { fontWeight: '800', color: COLORS.text },
+  cardSub: { color: COLORS.textMuted, marginTop: 4 },
+  remover: { backgroundColor: COLORS.danger, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm + 2, borderRadius: RADII.sm },
   removerTxt: { color: '#fff', fontWeight: '800' },
-  empty: { color: '#64748b', textAlign: 'center', marginTop: 16 },
+  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.lg },
 });

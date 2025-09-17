@@ -4,6 +4,7 @@ import { View, Text, StyleSheet, FlatList, Platform, Pressable } from 'react-nat
 import dayjs from 'dayjs';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getDb } from '../storage/database';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function HistoricoScreen() {
   const [data, setData] = useState(new Date());
@@ -21,7 +22,6 @@ export default function HistoricoScreen() {
     setVendas(vs);
     setProdutos(ps);
   }
-
   useEffect(() => { carregar(); }, [dataSql]);
 
   const nomePorId = useMemo(() => new Map(produtos.map(p => [String(p.id), p.nome])), [produtos]);
@@ -33,22 +33,12 @@ export default function HistoricoScreen() {
         const qtd = Number(v.quantidade) || 0;
         const unit = Number(v.preco_unit) || 0;
         const tot = qtd * unit;
-        return {
-          id: v.id,
-          comanda: v.comanda,
-          nome,
-          quantidade: qtd,
-          preco: unit,
-          total: tot,
-        };
+        return { id: v.id, comanda: v.comanda, nome, quantidade: qtd, preco: unit, total: tot };
       })
       .sort((a, b) => b.id - a.id);
   }, [vendas, nomePorId]);
 
   const totalGeral = useMemo(() => linhas.reduce((acc, l) => acc + l.total, 0), [linhas]);
-
-  function abrirPicker() { setPickerVisible(true); }
-  function onChangeDate(_, selected) { setPickerVisible(false); if (selected) setData(selected); }
 
   return (
     <View style={styles.container}>
@@ -56,7 +46,7 @@ export default function HistoricoScreen() {
 
       <View style={styles.row}>
         <Text style={styles.label}>Data:</Text>
-        <Pressable style={styles.btn} onPress={abrirPicker}>
+        <Pressable style={styles.btn} onPress={() => setPickerVisible(true)}>
           <Text style={styles.btnText}>{dataLabel}</Text>
         </Pressable>
       </View>
@@ -64,7 +54,7 @@ export default function HistoricoScreen() {
       {pickerVisible && (
         <DateTimePicker
           value={data}
-          onChange={onChangeDate}
+          onChange={(_, d) => { setPickerVisible(false); if (d) setData(d); }}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
         />
@@ -87,27 +77,27 @@ export default function HistoricoScreen() {
             <Text style={styles.itemTotal}>R$ {item.total.toFixed(2)}</Text>
           </View>
         )}
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm + 2 }} />}
         ListEmptyComponent={<Text style={styles.empty}>Sem vendas na data.</Text>}
-        contentContainerStyle={{ paddingVertical: 12 }}
+        contentContainerStyle={{ paddingVertical: SPACING.lg }}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
-  title: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  label: { fontWeight: '700', color: '#0f172a' },
-  btn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
-  btnText: { fontWeight: '800', color: '#0f172a' },
-  totalCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 10 },
+  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
+  title: { fontSize: FONT.size.xl, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.lg },
+  row: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginBottom: SPACING.md },
+  label: { fontWeight: '700', color: COLORS.text },
+  btn: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: RADII.md, paddingHorizontal: SPACING.xl - 2, paddingVertical: SPACING.lg },
+  btnText: { fontWeight: '800', color: COLORS.text },
+  totalCard: { backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.xl, borderWidth: 1, borderColor: COLORS.border, marginBottom: SPACING.md },
   totalLabel: { color: '#64748b', fontWeight: '700' },
-  totalValue: { fontSize: 20, fontWeight: '900', color: '#0f172a', marginTop: 4 },
-  item: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e5e7eb' },
-  itemNome: { fontWeight: '800', color: '#0f172a' },
-  itemSub: { color: '#475569', marginTop: 2 },
-  itemTotal: { marginTop: 4, fontWeight: '900', color: '#0f172a' },
-  empty: { color: '#64748b', textAlign: 'center', marginTop: 8 },
+  totalValue: { fontSize: FONT.size.xl, fontWeight: '900', color: COLORS.text, marginTop: 4 },
+  item: { backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.border },
+  itemNome: { fontWeight: '800', color: COLORS.text },
+  itemSub: { color: COLORS.textMuted, marginTop: 2 },
+  itemTotal: { marginTop: 4, fontWeight: '900', color: COLORS.text },
+  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.sm },
 });

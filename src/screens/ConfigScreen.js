@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
 import { getDb, initDb } from '../storage/database';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ConfigScreen() {
   const [busy, setBusy] = useState(false);
@@ -10,7 +11,6 @@ export default function ConfigScreen() {
     try {
       setBusy(true);
       const db = await getDb();
-      // remove vendas de hoje
       const hoje = new Date().toISOString().slice(0, 10);
       await db.runAsync('DELETE FROM vendas WHERE data = ?', [hoje]);
       Alert.alert('Pronto', 'Vendas de hoje removidas.');
@@ -35,10 +35,7 @@ export default function ConfigScreen() {
             try {
               setBusy(true);
               const db = await getDb();
-              await db.execAsync(`
-                DROP TABLE IF EXISTS vendas;
-                DROP TABLE IF EXISTS produtos;
-              `);
+              await db.execAsync(`DROP TABLE IF EXISTS vendas; DROP TABLE IF EXISTS produtos;`);
               await initDb();
               Alert.alert('Banco resetado', 'Todas as tabelas foram recriadas.');
             } catch (e) {
@@ -77,16 +74,16 @@ export default function ConfigScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
-  title: { fontSize: 20, fontWeight: '800', color: '#0f172a' },
-  desc: { color: '#475569', marginTop: 4 },
+  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
+  title: { fontSize: FONT.size.xl, fontWeight: '800', color: COLORS.text },
+  desc: { color: COLORS.textMuted, marginTop: 4 },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#e5e7eb', marginTop: 14 },
-  cardTitle: { fontWeight: '800', color: '#0f172a', marginBottom: 8 },
+  card: { backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.xl, borderWidth: 1, borderColor: COLORS.border, marginTop: SPACING.xl - 2 },
+  cardTitle: { fontWeight: '800', color: COLORS.text, marginBottom: SPACING.sm },
 
-  btn: { backgroundColor: '#2563eb', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginTop: 6 },
-  btnDanger: { backgroundColor: '#ef4444', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginTop: 6 },
+  btn: { backgroundColor: COLORS.primary, paddingVertical: SPACING.lg, borderRadius: RADII.md, alignItems: 'center', marginTop: SPACING.sm },
+  btnDanger: { backgroundColor: COLORS.danger, paddingVertical: SPACING.lg, borderRadius: RADII.md, alignItems: 'center', marginTop: SPACING.sm },
   btnDisabled: { opacity: 0.6 },
   btnTxt: { color: '#fff', fontWeight: '900' },
-  warn: { color: '#b91c1c', marginTop: 8, fontSize: 12 },
+  warn: { color: '#b91c1c', marginTop: SPACING.sm, fontSize: FONT.size.sm },
 });

@@ -1,6 +1,7 @@
 // src/components/Input.js
 import React from 'react';
 import { TextInput, StyleSheet, Platform } from 'react-native';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function Input({
   style,
@@ -19,9 +20,9 @@ export default function Input({
       onChangeText={onChangeText}
       keyboardType={keyboardType}
       autoCapitalize={autoCapitalize}
-      placeholderTextColor="#6b7280"   // cinza médio (sempre visível)
-      selectionColor="#2563eb"
-      cursorColor="#2563eb"
+      placeholderTextColor={COLORS.hint}
+      selectionColor={COLORS.primary}
+      cursorColor={COLORS.primary}
       returnKeyType="done"
       underlineColorAndroid="transparent"
       keyboardAppearance={Platform.OS === 'ios' ? 'light' : undefined}
@@ -32,13 +33,13 @@ export default function Input({
 
 const styles = StyleSheet.create({
   input: {
-    backgroundColor: '#ffffff',
-    color: '#111827',              // texto sempre escuro
+    backgroundColor: COLORS.card,
+    color: COLORS.text,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+    borderColor: COLORS.border,
+    borderRadius: RADII.md,
+    paddingHorizontal: SPACING.xl - 2,
+    paddingVertical: SPACING.lg,
+    fontSize: FONT.size.md,
   },
 });

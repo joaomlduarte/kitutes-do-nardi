@@ -3,10 +3,11 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform, Alert } from 'react-native';
 import dayjs from 'dayjs';
 import { getDb } from '../storage/database';
-import * as FileSystem from 'expo-file-system/legacy'; // API legacy para writeAsStringAsync
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ExportarScreen() {
   const [data, setData] = useState(new Date());
@@ -23,9 +24,7 @@ export default function ExportarScreen() {
   }
 
   function montarWorkbook({ vendas, nomePorId }) {
-    const mapa = new Map(); // id -> { nome, qtd, total }
-    let totalGeral = 0;
-
+    const mapa = new Map(); let totalGeral = 0;
     for (const v of vendas) {
       const id = String(v.produto_id);
       const nome = nomePorId.get(id) || id;
@@ -33,13 +32,9 @@ export default function ExportarScreen() {
       const unit = Number(v.preco_unit) || 0;
       const tot = qtd * unit;
       totalGeral += tot;
-
       const acc = mapa.get(id) || { nome, qtd: 0, total: 0 };
-      acc.qtd += qtd;
-      acc.total += tot;
-      mapa.set(id, acc);
+      acc.qtd += qtd; acc.total += tot; mapa.set(id, acc);
     }
-
     const linhasResumo = Array.from(mapa.values())
       .sort((a, b) => b.total - a.total)
       .map((r) => [r.nome, r.qtd, Number(r.total.toFixed(2))]);
@@ -73,7 +68,6 @@ export default function ExportarScreen() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheetResumo, 'Resumo');
     XLSX.utils.book_append_sheet(wb, sheetVendas, 'Vendas');
-
     return wb;
   }
 
@@ -84,14 +78,9 @@ export default function ExportarScreen() {
       const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      alert('Arquivo XLSX baixado.');
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url); alert('Arquivo XLSX baixado.');
       return;
     }
 
@@ -150,23 +139,23 @@ export default function ExportarScreen() {
         <Text style={styles.exportText}>Exportar XLSX</Text>
       </Pressable>
 
-      <View style={{ height: 8 }} />
+      <View style={{ height: SPACING.sm }} />
       <Text style={styles.footnote}>Dica: finalize as comandas para que as vendas entrem no histórico do dia.</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
-  title: { fontSize: 22, fontWeight: '800', color: '#0f172a' },
+  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
+  title: { fontSize: FONT.size.xxl, fontWeight: '800', color: COLORS.text },
   hint: { color: '#707070', marginTop: 4 },
 
-  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
-  dateLabel: { fontWeight: '700', color: '#0f172a' },
-  dateBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
-  dateBtnText: { fontWeight: '800', color: '#0f172a' },
+  dateRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginTop: SPACING.lg },
+  dateLabel: { fontWeight: '700', color: COLORS.text },
+  dateBtn: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: RADII.md, paddingHorizontal: SPACING.xl - 2, paddingVertical: SPACING.lg },
+  dateBtnText: { fontWeight: '800', color: COLORS.text },
 
-  exportBtn: { marginTop: 16, backgroundColor: '#1565c0', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  exportBtn: { marginTop: SPACING.lg, backgroundColor: '#1565c0', paddingVertical: SPACING.lg + 2, borderRadius: RADII.lg, alignItems: 'center' },
   exportText: { color: '#fff', fontWeight: '900' },
   footnote: { color: '#888' },
 });
