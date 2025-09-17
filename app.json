@@ -2,43 +2,33 @@
   "expo": {
     "name": "Kitutes do Nardi",
     "slug": "kitutes-do-nardi",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "default",
-    "icon": "./assets/icon_Bird_512x512.png",
-    "scheme": "kitutesdonardi",
-    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/icon_Bird_512x512.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "updates": {
-      "enabled": false
-    },
     "android": {
-      "package": "com.seunome.kitutesdonardi",
-      "versionCode": 1,
+      "package": "com.kitutesdonardi.app",
+      "versionCode": 2,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon_Bird_512x512.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "permissions": []
+      }
     },
     "ios": {
-      "bundleIdentifier": "com.seunome.kitutesdonardi",
       "supportsTablet": true,
-      "buildNumber": "1"
+      "bundleIdentifier": "com.kitutesdonardi.app",
+      "buildNumber": "2"
     },
-    "plugins": [
-      "expo-font"
-    ],
     "extra": {
       "eas": {
         "projectId": "7f1e2970-0a52-403c-981c-f759298f1329"
       }
-    }
+    },
+    "owner": "joaomlduarte"
   }
 }
