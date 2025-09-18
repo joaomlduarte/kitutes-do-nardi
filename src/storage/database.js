@@ -3,184 +3,303 @@ import { Platform } from 'react-native';
 
 const isWeb = Platform.OS === 'web';
 
-let getDb;
-let initDb;
+// ===== util de log =====
+const LOG_SQL = true;
+const log = (...a) => { if (LOG_SQL) console.log('[db]', ...a); };
+const errStr = (e) => {
+  if (!e) return '<<undefined error>>';
+  if (typeof e === 'string') return e;
+  if (e instanceof Error) return `${e.name}: ${e.message}\n${e.stack ?? ''}`;
+  try { return JSON.stringify(e); } catch { return String(e); }
+};
 
-/** ===================== WEB (memória) ===================== */
-if (isWeb) {
-  const memory = {
-    produtos: new Map(),  // id -> { id, nome, preco }
-    vendas: [],           // { id, data, comanda, produto_id, quantidade, preco_unit }
-    comandas: new Map(),  // id -> { id, aberta_em }
-    autoVendaId: 1,
+// ---------- DB em memória (fallback) ----------
+const makeMemoryDb = () => {
+  const mem = {
+    comandas: new Map(),         // id -> { id, nome, status }
+    itens: new Map(),            // id -> { id, comanda_id, produto, qtd, preco_unit, obs }
+    produtosById: new Map(),     // id -> { id, nome, preco }
+    produtoNameToId: new Map(),  // nome(lower) -> id
+    autoCid: 1,
+    autoIid: 1,
+    autoPid: 1,
   };
 
-  const db = {
-    async execAsync(_sql) {},
-    async getAllAsync(sql, params = []) {
-      const up = sql.trim().toUpperCase();
+  const txStub = {}; // imita o objeto tx do expo-sqlite
+  const okWrap = (ok, payload = {}) =>
+    ok?.(txStub, { rows: { _array: [] }, rowsAffected: 0, insertId: undefined, ...payload });
+  const errWrap = (err, e) => err?.(txStub, e ?? new Error('memdb error'));
 
-      if (up.startsWith('SELECT * FROM PRODUTOS')) {
-        return Array.from(memory.produtos.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+  const api = {
+    exec(sql, params = [], ok, err) {
+      try {
+        const S = (sql || '').trim();
+        const U = S.toUpperCase();
+        log('MEM exec:', S, 'params:', params);
+
+        // CREATE / INDEX / UPDATE default
+        if (U.startsWith('CREATE TABLE') || U.startsWith('CREATE INDEX'))
+          return okWrap(ok);
+        if (U.startsWith("UPDATE COMANDAS SET STATUS = 'ABERTA' WHERE STATUS IS NULL"))
+          return okWrap(ok);
+
+        // ===== COMANDAS =====
+        if (U.startsWith('INSERT INTO COMANDAS')) {
+          const nome = params[0];
+          const id = mem.autoCid++;
+          mem.comandas.set(id, { id, nome, status: 'aberta' });
+          return okWrap(ok, { insertId: id, rowsAffected: 1 });
+        }
+        if (U.startsWith("UPDATE COMANDAS SET STATUS = 'FECHADA'")) {
+          const id = params[0];
+          const c = mem.comandas.get(id);
+          if (c) c.status = 'fechada';
+          return okWrap(ok, { rowsAffected: c ? 1 : 0 });
+        }
+        if (U.startsWith("SELECT * FROM COMANDAS WHERE STATUS = 'ABERTA' ORDER BY NOME COLLATE NOCASE ASC")) {
+          const arr = Array.from(mem.comandas.values())
+            .filter(c => c.status === 'aberta')
+            .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { sensitivity: 'base' }));
+          return ok?.(txStub, { rows: { _array: arr } });
+        }
+        if (U.startsWith('SELECT * FROM COMANDAS WHERE ID = ?')) {
+          const id = params[0];
+          const c = mem.comandas.get(id);
+          return ok?.(txStub, { rows: { _array: c ? [c] : [] } });
+        }
+
+        // ===== ITENS =====
+        if (U.startsWith('INSERT INTO ITENS')) {
+          const [comanda_id, produto, qtd, preco_unit, obs] = params;
+          const id = mem.autoIid++;
+          mem.itens.set(id, { id, comanda_id, produto, qtd, preco_unit, obs });
+          return okWrap(ok, { insertId: id, rowsAffected: 1 });
+        }
+        if (U.startsWith('DELETE FROM ITENS WHERE ID = ?')) {
+          const id = params[0];
+          const okDel = mem.itens.delete(id);
+          return okWrap(ok, { rowsAffected: okDel ? 1 : 0 });
+        }
+        if (U.startsWith('SELECT * FROM ITENS WHERE COMANDA_ID = ? ORDER BY ID ASC')) {
+          const cid = params[0];
+          const arr = Array.from(mem.itens.values())
+            .filter(i => i.comanda_id === cid)
+            .sort((a, b) => a.id - b.id);
+          return ok?.(txStub, { rows: { _array: arr } });
+        }
+
+        // ===== PRODUTOS (CRUD completo com id) =====
+        // INSERT
+        if (U.startsWith('INSERT INTO PRODUTOS')) {
+          const [nome, preco] = params;
+          const key = String(nome || '').toLowerCase();
+          // se já existir pelo nome, apenas atualiza o preço e retorna como "update"
+          if (mem.produtoNameToId.has(key)) {
+            const id = mem.produtoNameToId.get(key);
+            const p = mem.produtosById.get(id);
+            p.preco = Number(preco) || 0;
+            mem.produtosById.set(id, p);
+            return okWrap(ok, { rowsAffected: 1, insertId: undefined });
+          }
+          const id = mem.autoPid++;
+          const p = { id, nome, preco: Number(preco) || 0 };
+          mem.produtosById.set(id, p);
+          mem.produtoNameToId.set(key, id);
+          return okWrap(ok, { insertId: id, rowsAffected: 1 });
+        }
+
+        // UPDATE por id
+        if (U.startsWith('UPDATE PRODUTOS SET PRECO = ? WHERE ID = ?')) {
+          const [preco, id] = params;
+          const p = mem.produtosById.get(Number(id));
+          if (p) {
+            p.preco = Number(preco) || 0;
+            mem.produtosById.set(p.id, p);
+            return okWrap(ok, { rowsAffected: 1 });
+          }
+          return okWrap(ok, { rowsAffected: 0 });
+        }
+        if (U.startsWith('UPDATE PRODUTOS SET NOME = ?, PRECO = ? WHERE ID = ?')) {
+          const [nome, preco, id] = params;
+          const pid = Number(id);
+          const old = mem.produtosById.get(pid);
+          if (!old) return okWrap(ok, { rowsAffected: 0 });
+          // atualizar índice por nome
+          mem.produtoNameToId.delete(String(old.nome).toLowerCase());
+          mem.produtoNameToId.set(String(nome).toLowerCase(), pid);
+          mem.produtosById.set(pid, { id: pid, nome, preco: Number(preco) || 0 });
+          return okWrap(ok, { rowsAffected: 1 });
+        }
+
+        // DELETE por id
+        if (U.startsWith('DELETE FROM PRODUTOS WHERE ID = ?')) {
+          const id = Number(params[0]);
+          const old = mem.produtosById.get(id);
+          if (!old) return okWrap(ok, { rowsAffected: 0 });
+          mem.produtosById.delete(id);
+          mem.produtoNameToId.delete(String(old.nome).toLowerCase());
+          return okWrap(ok, { rowsAffected: 1 });
+        }
+
+        // SELECTS
+        if (U.startsWith('SELECT * FROM PRODUTOS ORDER BY NOME')) {
+          const arr = Array.from(mem.produtosById.values())
+            .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { sensitivity: 'base' }));
+          return ok?.(txStub, { rows: { _array: arr } });
+        }
+        if (U.startsWith('SELECT ID, NOME, PRECO FROM PRODUTOS WHERE NOME LIKE')) {
+          const like = (params[0] || '').replace(/%/g, '').toLowerCase();
+          const arr = Array.from(mem.produtosById.values())
+            .filter(p => p.nome.toLowerCase().includes(like))
+            .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { sensitivity: 'base' }))
+            .slice(0, 8);
+          return ok?.(txStub, { rows: { _array: arr } });
+        }
+        if (U.startsWith('SELECT ID FROM PRODUTOS WHERE NOME = ?')) {
+          const nome = String(params[0] || '');
+          const id = mem.produtoNameToId.get(nome.toLowerCase());
+          return ok?.(txStub, { rows: { _array: id ? [{ id }] : [] } });
+        }
+
+        // DROP TABLE
+        if (U.startsWith('DROP TABLE')) return okWrap(ok, { rowsAffected: 1 });
+
+        // default vazio
+        log('MEM exec (sem match, retornando vazio):', S);
+        return okWrap(ok);
+      } catch (e) {
+        console.log('[db] MEM exec error:', errStr(e));
+        return errWrap(err, e);
       }
-
-      if (up.startsWith('SELECT * FROM VENDAS WHERE DATA =')) {
-        const data = params[0];
-        return memory.vendas.filter(v => v.data === data).sort((a, b) => b.id - a.id);
-      }
-
-      if (up.startsWith('SELECT * FROM COMANDAS')) {
-        // Ordena por id (alfabético, case-insensitive)
-        return Array.from(memory.comandas.values()).sort((a, b) =>
-          a.id.localeCompare(b.id, 'pt', { sensitivity: 'base' })
-        );
-      }
-
-      if (up.startsWith('SELECT ID FROM COMANDAS WHERE ID =')) {
-        const id = String(params[0]);
-        return memory.comandas.has(id) ? [{ id }] : [];
-      }
-
-      return [];
     },
-    async runAsync(sql, params = []) {
-      const up = sql.trim().toUpperCase();
-
-      if (up.startsWith('INSERT OR REPLACE INTO PRODUTOS')) {
-        const [id, nome, preco] = params;
-        memory.produtos.set(String(id), { id: String(id), nome: String(nome), preco: Number(preco) });
-        return;
-      }
-      if (up.startsWith('DELETE FROM PRODUTOS WHERE ID =')) {
-        const [id] = params;
-        memory.produtos.delete(String(id));
-        return;
-      }
-      if (up.startsWith('INSERT INTO VENDAS')) {
-        const [data, comanda, produto_id, quantidade, preco_unit] = params;
-        memory.vendas.push({
-          id: memory.autoVendaId++,
-          data: String(data),
-          comanda: String(comanda),
-          produto_id: String(produto_id),
-          quantidade: Number(quantidade),
-          preco_unit: Number(preco_unit),
-        });
-        return;
-      }
-      if (up.startsWith('INSERT INTO COMANDAS')) {
-        const [id, aberta_em] = params;
-        memory.comandas.set(String(id), { id: String(id), aberta_em: String(aberta_em) });
-        return;
-      }
-      if (up.startsWith('DELETE FROM COMANDAS WHERE ID =')) {
-        const [id] = params;
-        memory.comandas.delete(String(id));
-        return;
-      }
+    transaction(fn) {
+      const tx = { executeSql: (sql, params, ok, err) => api.exec(sql, params, ok, err) };
+      fn(tx);
     },
   };
 
-  let initDone = false;
-  getDb = async () => db;
-  initDb = async () => {
-    if (!initDone) {
-      initDone = true;
+  return { transaction: api.transaction };
+};
+
+
+
+// ---------- tentativa de carregar expo-sqlite ----------
+let _sqliteMod = undefined;
+function getSQLiteOrNull() {
+  if (_sqliteMod !== undefined) return _sqliteMod;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('expo-sqlite');
+    if (mod?.openDatabase || mod?.default?.openDatabase) {
+      _sqliteMod = mod;
+    } else {
+      _sqliteMod = null;
     }
-    return db;
-  };
+  } catch {
+    _sqliteMod = null;
+  }
+  return _sqliteMod;
 }
 
-/** ===================== ANDROID / iOS (SQLite real) ===================== */
-else {
-  const SQLite = require('expo-sqlite');
-  let dbPromise = null;
+// ---------- instância única ----------
+let _db = null;
+export function getDb() {
+  if (_db) return _db;
 
-  async function _openDb() {
-    if (SQLite.openDatabaseAsync) {
-      return await SQLite.openDatabaseAsync('kitutes.db');
-    }
-    const legacy = SQLite.openDatabase('kitutes.db');
-    return {
-      execAsync: (sql) => new Promise((resolve, reject) => {
-        legacy.transaction(tx => tx.executeSql(sql, [], () => resolve(), (_, err) => { reject(err); return true; }));
-      }),
-      runAsync: (sql, params = []) => new Promise((resolve, reject) => {
-        legacy.transaction(tx => tx.executeSql(sql, params, () => resolve(), (_, err) => { reject(err); return true; }));
-      }),
-      getAllAsync: (sql, params = []) => new Promise((resolve, reject) => {
-        legacy.transaction(tx => tx.executeSql(sql, params, (_, { rows }) => resolve(rows._array || []), (_, err) => { reject(err); return true; }));
-      }),
-    };
+  if (isWeb) {
+    console.warn('[database] Web: usando banco em memória.');
+    _db = makeMemoryDb();
+    return _db;
   }
 
-  getDb = () => {
-    if (!dbPromise) dbPromise = _openDb();
-    return dbPromise;
-  };
+  const sqlite = getSQLiteOrNull();
+  const openDatabase = sqlite?.openDatabase || sqlite?.default?.openDatabase;
 
-  initDb = async () => {
-    const db = await getDb();
-    try {
-      // Cria todas as tabelas necessárias
-      await db.execAsync?.(`
-        PRAGMA foreign_keys = ON;
+  if (typeof openDatabase !== 'function') {
+    console.warn('[database] expo-sqlite indisponível; usando banco em memória.');
+    _db = makeMemoryDb();
+    return _db;
+  }
 
-        CREATE TABLE IF NOT EXISTS produtos (
-          id TEXT PRIMARY KEY NOT NULL,
-          nome TEXT NOT NULL,
-          preco REAL NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS vendas (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          data TEXT NOT NULL,
-          comanda TEXT NOT NULL,
-          produto_id TEXT NOT NULL,
-          quantidade REAL NOT NULL,
-          preco_unit REAL NOT NULL,
-          FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS comandas (
-          id TEXT PRIMARY KEY NOT NULL,
-          aberta_em TEXT NOT NULL
-        );
-      `);
-
-      if (!db.execAsync) {
-        await db.runAsync('PRAGMA foreign_keys = ON;');
-        await db.runAsync(`CREATE TABLE IF NOT EXISTS produtos (
-          id TEXT PRIMARY KEY NOT NULL,
-          nome TEXT NOT NULL,
-          preco REAL NOT NULL
-        );`);
-        await db.runAsync(`CREATE TABLE IF NOT EXISTS vendas (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          data TEXT NOT NULL,
-          comanda TEXT NOT NULL,
-          produto_id TEXT NOT NULL,
-          quantidade REAL NOT NULL,
-          preco_unit REAL NOT NULL
-        );`);
-        await db.runAsync(`CREATE TABLE IF NOT EXISTS comandas (
-          id TEXT PRIMARY KEY NOT NULL,
-          aberta_em TEXT NOT NULL
-        );`);
-      }
-    } catch (e) {
-      console.error('Erro criando tabelas', e);
-      throw new Error('Falha ao inicializar o banco local.');
-    }
-
-    try {
-      await db.getAllAsync('SELECT 1 as ok');
-    } catch (e) {
-      console.error('Sanity check falhou', e);
-      throw new Error('Banco indisponível no dispositivo.');
-    }
-    return db;
-  };
+  log('Abrindo SQLite kitutes.db');
+  _db = openDatabase('kitutes.db');
+  return _db;
 }
 
-export { getDb, initDb };
+// wrappers Promise
+export const dbSelectAll = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    getDb().transaction(tx => {
+      tx.executeSql(
+        sql,
+        params,
+        (_, { rows }) => {
+          const arr = rows?._array ?? [];
+          log('OK SELECT', (Date.now()-t0)+'ms', sql, '=>', arr.length, 'linhas');
+          resolve(arr);
+        },
+        (_, e) => {
+          console.log('ERRO SELECT:', errStr(e), '\nSQL:', sql, '\nPARAMS:', params);
+          reject(e);
+          return true;
+        }
+      );
+    });
+  });
+
+export const dbRun = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    getDb().transaction(tx => {
+      tx.executeSql(
+        sql,
+        params,
+        (_, res) => {
+          log('OK RUN   ', (Date.now()-t0)+'ms', sql, '=>', { insertId: res?.insertId, rowsAffected: res?.rowsAffected });
+          resolve(res);
+        },
+        (_, e) => {
+          console.log('ERRO RUN  :', errStr(e), '\nSQL:', sql, '\nPARAMS:', params);
+          reject(e);
+          return true;
+        }
+      );
+    });
+  });
+
+// init schema
+export async function initDb() {
+  try {
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS comandas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT,
+        status TEXT
+      );
+    `);
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS itens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        comanda_id INTEGER,
+        produto TEXT,
+        qtd INTEGER,
+        preco_unit REAL,
+        obs TEXT
+      );
+    `);
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS produtos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT,
+        preco REAL
+      );
+    `);
+    await dbRun(`UPDATE comandas SET status = 'aberta' WHERE status IS NULL;`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_itens_comanda ON itens(comanda_id);`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_produtos_nome ON produtos(nome);`);
+  } catch (e) {
+    console.log('[initDb] erro:', errStr(e));
+    throw e;
+  }
+}

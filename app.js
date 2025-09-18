@@ -36,11 +36,12 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        await initDb();        // >>> garante criação das tabelas no APK
-        setReady(true);
+        await initDb(); // garante criação das tabelas
       } catch (e) {
-        console.error('initDb failed', e);
+        console.warn('[App] initDb falhou, caindo para memória:', e?.message || e);
         setErr(e?.message || String(e));
+      } finally {
+        setReady(true); // sempre libera, mesmo em fallback
       }
     })();
   }, []);
@@ -50,7 +51,11 @@ export default function App() {
       <View style={{ flex: 1, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center' }}>
         <StatusBar barStyle="dark-content" backgroundColor={COLORS.card} />
         <ActivityIndicator size="large" color={COLORS.primary} />
-        {err ? <Text style={{ marginTop: 10, color: 'red', paddingHorizontal: 24, textAlign: 'center' }}>{err}</Text> : null}
+        {err ? (
+          <Text style={{ marginTop: 10, color: 'red', paddingHorizontal: 24, textAlign: 'center' }}>
+            {err}
+          </Text>
+        ) : null}
       </View>
     );
   }

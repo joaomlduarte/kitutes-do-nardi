@@ -1,141 +1,145 @@
 // src/screens/DashboardScreen.js
-import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, Dimensions, ScrollView } from 'react-native';
-import dayjs from 'dayjs';
-import { getDb } from '../storage/database';
-import { VictoryPie, VictoryChart, VictoryBar, VictoryAxis } from 'victory-native';
-import { COLORS, RADII, SPACING, FONT } from '../theme';
-
-const { width } = Dimensions.get('window');
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { COLORS, RADII, SPACING } from '../theme';
+import { dbSelectAll } from '../storage/database';
 
 export default function DashboardScreen() {
-  const [dataRef, setDataRef] = useState(new Date());
-  const dataSql = dayjs(dataRef).format('YYYY-MM-DD');
-  const dataLabel = dayjs(dataRef).format('DD/MM/YYYY');
+  const [loading, setLoading] = useState(false);
+  const [dados, setDados] = useState({
+    abertas: 0,
+    fechadas: 0,
+    totalAbertas: 0,
+    totalFechadas: 0,
+    totalGeral: 0,
+    top: [], // [{produto, qtd, valor}]
+  });
 
-  const [vendas, setVendas] = useState([]);
-  const [produtos, setProdutos] = useState([]);
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const comandasAbertas = await dbSelectAll(`SELECT * FROM comandas WHERE status = 'aberta' ORDER BY nome COLLATE NOCASE ASC;`);
+      const comandasFechadas = await dbSelectAll(`SELECT * FROM comandas WHERE status = 'fechada' ORDER BY nome COLLATE NOCASE ASC;`);
 
-  useEffect(() => {
-    async function load() {
-      const db = await getDb();
-      const vs = await db.getAllAsync('SELECT * FROM vendas WHERE data = ?', [dataSql]);
-      const ps = await db.getAllAsync('SELECT * FROM produtos');
-      setVendas(vs);
-      setProdutos(ps);
+      // Busca itens por comanda (compatível com fallback em memória)
+      const somaItens = async (lista) => {
+        let total = 0;
+        let mapaProdutos = new Map(); // nome -> {qtd, valor}
+        for (const c of lista) {
+          const its = await dbSelectAll(`SELECT * FROM itens WHERE comanda_id = ? ORDER BY id ASC;`, [c.id]);
+          for (const it of its) {
+            const q = Number(it.qtd) || 0;
+            const pr = Number(it.preco_unit) || 0;
+            const v = q * pr;
+            total += v;
+            const m = mapaProdutos.get(it.produto) || { qtd: 0, valor: 0 };
+            m.qtd += q;
+            m.valor += v;
+            mapaProdutos.set(it.produto, m);
+          }
+        }
+        return { total, mapaProdutos };
+      };
+
+      const { total: totA, mapaProdutos: mapaA } = await somaItens(comandasAbertas);
+      const { total: totF, mapaProdutos: mapaF } = await somaItens(comandasFechadas);
+
+      // top produtos combinando abertas+fechadas
+      const mapaTop = new Map(mapaA);
+      for (const [k, v] of mapaF.entries()) {
+        const cur = mapaTop.get(k) || { qtd: 0, valor: 0 };
+        mapaTop.set(k, { qtd: cur.qtd + v.qtd, valor: cur.valor + v.valor });
+      }
+      const top = Array.from(mapaTop.entries())
+        .map(([produto, { qtd, valor }]) => ({ produto, qtd, valor }))
+        .sort((a, b) => b.valor - a.valor)
+        .slice(0, 5);
+
+      setDados({
+        abertas: comandasAbertas.length,
+        fechadas: comandasFechadas.length,
+        totalAbertas: totA,
+        totalFechadas: totF,
+        totalGeral: totA + totF,
+        top,
+      });
+    } finally {
+      setLoading(false);
     }
-    load();
-  }, [dataSql]);
+  }, []);
 
-  const nomePorId = useMemo(() => new Map(produtos.map(p => [String(p.id), p.nome])), [produtos]);
-
-  const resumo = useMemo(() => {
-    let total = 0;
-    let qtdItens = 0;
-    const porProduto = new Map();
-    const porComanda = new Map();
-
-    for (const v of vendas) {
-      const qtd = Number(v.quantidade) || 0;
-      const unit = Number(v.preco_unit) || 0;
-      const tot = qtd * unit;
-      total += tot;
-      qtdItens += qtd;
-
-      const nome = nomePorId.get(String(v.produto_id)) || String(v.produto_id);
-      const acc = porProduto.get(nome) || { qtd: 0, total: 0 };
-      acc.qtd += qtd;
-      acc.total += tot;
-      porProduto.set(nome, acc);
-
-      porComanda.set(v.comanda, (porComanda.get(v.comanda) || 0) + tot);
-    }
-
-    const topProdutos = Array.from(porProduto.entries())
-      .map(([nome, v]) => ({ nome, qtd: v.qtd, total: v.total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 6);
-
-    const porComandaArr = Array.from(porComanda.entries())
-      .map(([comanda, total]) => ({ comanda, total }))
-      .sort((a, b) => b.total - a.total);
-
-    return { total, qtdItens, topProdutos, porComandaArr };
-  }, [vendas, nomePorId]);
-
-  const graficoPieData = resumo.topProdutos.length
-    ? resumo.topProdutos.map((p) => ({ x: p.nome, y: Number(p.total.toFixed(2)) }))
-    : [{ x: 'Sem vendas', y: 1 }];
-
-  const graficoBarData = resumo.porComandaArr.length
-    ? resumo.porComandaArr.slice(0, 8).map((c) => ({ x: `#${c.comanda}`, y: Number(c.total.toFixed(2)) }))
-    : [{ x: '-', y: 0 }];
+  useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: SPACING.xl }}>
-      <Text style={styles.title}>Visão geral — {dataLabel}</Text>
+    <View style={styles.container}>
+      <Text style={styles.h1}>Dashboard</Text>
 
-      <View style={styles.cardsRow}>
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Arrecadação do dia</Text>
-          <Text style={styles.cardValue}>R$ {resumo.total.toFixed(2)}</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Itens vendidos</Text>
-          <Text style={styles.cardValue}>{resumo.qtdItens}</Text>
-        </View>
+      <View style={styles.grid}>
+        <Card title="Comandas abertas" value={String(dados.abertas)} />
+        <Card title="Comandas fechadas" value={String(dados.fechadas)} />
+        <Card title="Total abertas" value={`R$ ${dados.totalAbertas.toFixed(2)}`} />
+        <Card title="Total fechadas" value={`R$ ${dados.totalFechadas.toFixed(2)}`} />
+        <Card title="Total geral" value={`R$ ${dados.totalGeral.toFixed(2)}`} wide />
       </View>
 
-      <Text style={styles.section}>Produtos que mais saíram</Text>
-      <View style={styles.chartWrap}>
-        <VictoryPie
-          width={width - SPACING.xl * 2}
-          height={260}
-          data={graficoPieData}
-          labels={({ datum }) => `${datum.x}\nR$ ${datum.y.toFixed?.(2) ?? datum.y}`}
-          innerRadius={60}
-          padAngle={2}
-        />
-      </View>
-
-      <Text style={styles.section}>Comandas com maior consumo</Text>
-      <View style={styles.chartWrap}>
-        <VictoryChart width={width - SPACING.xl * 2} height={260} domainPadding={{ x: 20, y: 20 }}>
-          <VictoryAxis style={{ tickLabels: { angle: -25, fontSize: 10 } }} />
-          <VictoryAxis dependentAxis />
-          <VictoryBar data={graficoBarData} />
-        </VictoryChart>
-      </View>
-
-      <Text style={styles.section}>Top produtos (lista)</Text>
+      <Text style={[styles.h2, { marginTop: SPACING.lg }]}>Top produtos</Text>
       <FlatList
-        data={resumo.topProdutos}
-        keyExtractor={(i, idx) => String(idx)}
+        data={dados.top}
+        keyExtractor={(it, idx) => `${it.produto}-${idx}`}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={carregar} />}
+        ListEmptyComponent={<Text style={styles.empty}>Sem vendas registradas.</Text>}
         renderItem={({ item }) => (
-          <View style={styles.itemRow}>
-            <Text style={styles.itemName}>{item.nome}</Text>
-            <Text style={styles.itemRight}>Qtd: {item.qtd} • R$ {item.total.toFixed(2)}</Text>
+          <View style={styles.row}>
+            <Text style={[styles.cell, { flex: 2 }]} numberOfLines={1}>{item.produto}</Text>
+            <Text style={[styles.cell, { flex: 1, textAlign: 'right' }]}>{item.qtd}</Text>
+            <Text style={[styles.cell, { flex: 1, textAlign: 'right' }]}>R$ {item.valor.toFixed(2)}</Text>
           </View>
         )}
-        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm + 2 }} />}
-        ListEmptyComponent={<Text style={styles.empty}>Sem vendas no dia.</Text>}
-        contentContainerStyle={{ paddingBottom: SPACING.lg }}
+        ListHeaderComponent={() => (
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingBottom: 6 }]}>
+            <Text style={[styles.th, { flex: 2 }]}>Produto</Text>
+            <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>Qtd</Text>
+            <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>Valor</Text>
+          </View>
+        )}
       />
-    </ScrollView>
+    </View>
+  );
+}
+
+function Card({ title, value, wide }) {
+  return (
+    <View style={[styles.card, wide && { flexBasis: '100%' }]}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      <Text style={styles.cardValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
-  title: { fontSize: FONT.size.xl, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.lg },
-  cardsRow: { flexDirection: 'row', gap: SPACING.lg },
-  card: { flex: 1, backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.xl, borderWidth: 1, borderColor: COLORS.border },
-  cardLabel: { color: '#64748b', marginBottom: SPACING.sm, fontWeight: '600' },
-  cardValue: { fontSize: FONT.size.xl, fontWeight: '900', color: COLORS.text },
-  section: { marginTop: SPACING.lg, fontWeight: '800', color: COLORS.text },
-  chartWrap: { backgroundColor: COLORS.card, borderRadius: RADII.lg, paddingVertical: SPACING.sm, borderWidth: 1, borderColor: COLORS.border, marginTop: SPACING.sm },
-  itemRow: { backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between' },
-  itemName: { fontWeight: '800', color: COLORS.text },
-  itemRight: { color: COLORS.textMuted },
-  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.sm },
+  container: { flex: 1, padding: SPACING.lg },
+  h1: { fontSize: 20, fontWeight: '900', color: COLORS.text, marginBottom: SPACING.lg },
+  h2: { fontSize: 16, fontWeight: '900', color: COLORS.text },
+
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md },
+  card: {
+    flexBasis: '48%',
+    backgroundColor: COLORS.card,
+    borderRadius: RADII.md,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: SPACING.lg,
+  },
+  cardTitle: { color: COLORS.textMuted, marginBottom: 6 },
+  cardValue: { color: COLORS.text, fontSize: 18, fontWeight: '900' },
+
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  th: { color: COLORS.textMuted, fontWeight: '800' },
+  cell: { color: COLORS.text },
+
+  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.md },
 });

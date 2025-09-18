@@ -1,312 +1,311 @@
 // src/screens/ComandaDetailScreen.js
-import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet, Alert, TouchableOpacity, Keyboard, Platform } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, Pressable, Alert } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import Input from '../components/Input';
-import { getDb } from '../storage/database';
-import dayjs from 'dayjs';
-import { COLORS, RADII, SPACING, FONT } from '../theme';
+import { COLORS, RADII, SPACING } from '../theme';
+import { dbRun, dbSelectAll } from '../storage/database';
 
-export default function ComandaDetailScreen({ route, navigation }) {
-  const { comandaId } = route.params;
-  const [produtos, setProdutos] = useState([]);
+export default function ComandaDetailScreen() {
+  const route = useRoute();
+  const navigation = useNavigation();
+  const id = route?.params?.id;
+
+  const [comanda, setComanda] = useState(null);
   const [itens, setItens] = useState([]);
-  const [produtoRef, setProdutoRef] = useState('');
-  const [quantidade, setQuantidade] = useState('');
+  const [produto, setProduto] = useState('');
+  const [qtd, setQtd] = useState('1');
+  const [obs, setObs] = useState('');
   const [sugestoes, setSugestoes] = useState([]);
-  const [inputHeight, setInputHeight] = useState(48);
-  const inputBoxRef = useRef(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    navigation.setOptions({ title: `Comanda #${comandaId}` });
-    carregarProdutos();
-  }, [comandaId]);
-
-  async function carregarProdutos() {
-    const db = await getDb();
-    const lista = await db.getAllAsync('SELECT * FROM produtos');
-    // ordena por nome para uma sugestão mais “natural”
-    lista.sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt', { sensitivity: 'base' }));
-    setProdutos(lista);
-  }
-
-  // ---- util: remover acentos com fallback (evita depender de String.prototype.normalize) ----
-  const stripAccents = (s = '') => {
+  const carregar = async () => {
+    if (id == null) {
+      Alert.alert('Erro', 'ID da comanda não informado.');
+      navigation.goBack();
+      return;
+    }
     try {
-      return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    } catch {
-      // fallback básico
-      const map = {
-        á:'a', à:'a', â:'a', ã:'a', ä:'a', å:'a', æ:'ae',
-        Á:'A', À:'A', Â:'A', Ã:'A', Ä:'A', Å:'A',
-        é:'e', è:'e', ê:'e', ë:'e',
-        É:'E', È:'E', Ê:'E', Ë:'E',
-        í:'i', ì:'i', î:'i', ï:'i',
-        Í:'I', Ì:'I', Î:'I', Ï:'I',
-        ó:'o', ò:'o', ô:'o', õ:'o', ö:'o', œ:'oe',
-        Ó:'O', Ò:'O', Ô:'O', Õ:'O', Ö:'O',
-        ú:'u', ù:'u', û:'u', ü:'u',
-        Ú:'U', Ù:'U', Û:'U', Ü:'U',
-        ñ:'n', Ñ:'N', ç:'c', Ç:'C'
-      };
-      return s.split('').map(ch => map[ch] || ch).join('');
+      setLoading(true);
+      const c = await dbSelectAll(`SELECT * FROM comandas WHERE id = ?;`, [id]);
+      if (!c.length) {
+        Alert.alert('Erro', 'Comanda não encontrada.');
+        navigation.goBack();
+        return;
+      }
+      const its = await dbSelectAll(
+        `SELECT * FROM itens WHERE comanda_id = ? ORDER BY id ASC;`,
+        [id]
+      );
+      setComanda(c[0]);
+      setItens(its);
+      navigation.setOptions({
+        title: c[0]?.nome ? `Comanda: ${c[0].nome}` : `Comanda #${c[0].id}`,
+      });
+    } catch (e) {
+      Alert.alert('Erro', String(e?.message || e));
+    } finally {
+      setLoading(false);
     }
   };
 
-  const norm = (s) => stripAccents(String(s || '').trim().toLowerCase());
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', carregar);
+    carregar();
+    return unsub;
+  }, [navigation, id]);
 
-  // ---- sugestões (ID inicia com… OU nome contém) ----
-  function atualizarSugestoes(texto) {
-    setProdutoRef(texto);
-    const t = String(texto || '').trim();
-    if (!t) {
+  // Autocomplete (2+ letras)
+  useEffect(() => {
+    const term = (produto || '').trim();
+    if (term.length < 2) {
       setSugestoes([]);
       return;
     }
-    const tNorm = norm(t);
-
-    const lista = produtos.filter(
-      (p) =>
-        String(p.id).startsWith(t) ||
-        norm(p.nome).includes(tNorm)
-    );
-
-    setSugestoes(lista.slice(0, 8));
-  }
-
-  function escolherSugestao(p) {
-    // Preenche com o ID (mais estável); se preferir nome, troque para p.nome
-    setProdutoRef(String(p.id));
-    setSugestoes([]);
-    // Mantém o teclado aberto para já digitar a quantidade
-  }
-
-  // ---- resolver produto por ID exato, nome exato, prefixo único de ID/NOME ----
-  function resolverProduto(ref) {
-    const refStr = String(ref || '').trim();
-    const refNorm = norm(refStr);
-    if (!refStr) return null;
-
-    let p = produtos.find((x) => String(x.id) === refStr);
-    if (p) return p;
-
-    p = produtos.find((x) => norm(x.nome) === refNorm);
-    if (p) return p;
-
-    const porIdPrefix = produtos.filter((x) => String(x.id).startsWith(refStr));
-    if (porIdPrefix.length === 1) return porIdPrefix[0];
-
-    const porNomePrefix = produtos.filter((x) => norm(x.nome).startsWith(refNorm));
-    if (porNomePrefix.length === 1) return porNomePrefix[0];
-
-    return null;
-  }
-
-  function addItem() {
-    if (!produtoRef || !quantidade) {
-      Alert.alert('Dados faltando', 'Informe o ID ou NOME do produto e a quantidade.');
-      return;
-    }
-
-    const qtd = Number(String(quantidade).replace(',', '.'));
-    if (Number.isNaN(qtd) || qtd <= 0) {
-      Alert.alert('Quantidade inválida', 'Digite uma quantidade válida.');
-      return;
-    }
-
-    const p = resolverProduto(produtoRef);
-    if (!p) {
-      Alert.alert('Produto não encontrado', 'Verifique o ID/NOME do produto.');
-      return;
-    }
-
-    const novo = { produto_id: String(p.id), nome: p.nome, preco_unit: Number(p.preco), quantidade: qtd };
-    setItens((prev) => [novo, ...prev]);
-    setProdutoRef('');
-    setSugestoes([]);
-    setQuantidade('');
-  }
-
-  const total = useMemo(
-    () => itens.reduce((acc, it) => acc + it.quantidade * it.preco_unit, 0),
-    [itens]
-  );
-
-  async function finalizar() {
-    if (itens.length === 0) {
-      Alert.alert('Sem itens', 'Adicione ao menos 1 item.');
-      return;
-    }
-    const db = await getDb();
-    const data = dayjs().format('YYYY-MM-DD');
-    for (const it of itens) {
-      await db.runAsync(
-        'INSERT INTO vendas (data, comanda, produto_id, quantidade, preco_unit) VALUES (?, ?, ?, ?, ?)',
-        [data, String(comandaId), it.produto_id, it.quantidade, it.preco_unit]
+    (async () => {
+      const rows = await dbSelectAll(
+        `SELECT id, nome, preco FROM produtos WHERE nome LIKE ? ORDER BY nome LIMIT 8;`,
+        [`%${term}%`]
       );
-    }
-    await db.runAsync('DELETE FROM comandas WHERE id = ?', [String(comandaId)]);
-    Alert.alert('Comanda finalizada', `Total: R$ ${total.toFixed(2)}`);
-    navigation.goBack();
-  }
+      setSugestoes(rows);
+    })();
+  }, [produto]);
 
-  const renderItem = ({ item }) => (
-    <View style={styles.item}>
-      <Text style={styles.itemNome}>{item.nome}</Text>
-      <Text style={styles.itemSub}>
-        ID: {item.produto_id} • Qtd: {item.quantidade} • Unit: R$ {item.preco_unit.toFixed(2)}
-      </Text>
-    </View>
-  );
+  const selecionarSugestao = (p) => {
+    setProduto(p.nome);
+    setSugestoes([]);
+  };
+
+  const obterPrecoDoProduto = async (nome) => {
+    const row = await dbSelectAll(
+      `SELECT preco FROM produtos WHERE nome = ? LIMIT 1;`,
+      [nome]
+    );
+    if (!row.length) return NaN;
+    const n = Number(row[0].preco);
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const addItem = async () => {
+    const p = (produto || '').trim();
+    const q = Number(qtd);
+
+    if (!p) return Alert.alert('Atenção', 'Informe o produto.');
+    if (!Number.isFinite(q) || q <= 0) return Alert.alert('Atenção', 'Qtd inválida.');
+
+    try {
+      // pega o preço do cadastro de produtos
+      const preco = await obterPrecoDoProduto(p);
+      if (!Number.isFinite(preco)) {
+        Alert.alert(
+          'Produto não encontrado',
+          'Cadastre o produto com seu preço na aba Produtos antes de adicionar à comanda.'
+        );
+        return;
+      }
+
+      await dbRun(
+        `INSERT INTO itens (comanda_id, produto, qtd, preco_unit, obs) VALUES (?, ?, ?, ?, ?);`,
+        [id, p, q, preco, obs?.trim() || null]
+      );
+
+      // limpeza e refresh
+      setProduto('');
+      setQtd('1');
+      setObs('');
+      await carregar();
+    } catch (e) {
+      Alert.alert('Erro', String(e?.message || e));
+    }
+  };
+
+  const removerItem = async (itemId) => {
+    try {
+      await dbRun(`DELETE FROM itens WHERE id = ?;`, [itemId]);
+      await carregar();
+    } catch (e) {
+      Alert.alert('Erro', String(e?.message || e));
+    }
+  };
+
+  const fecharComanda = async () => {
+    Alert.alert('Finalizar', 'Deseja fechar esta comanda?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Fechar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await dbRun(`UPDATE comandas SET status = 'fechada' WHERE id = ?;`, [id]);
+            navigation.goBack();
+          } catch (e) {
+            Alert.alert('Erro', String(e?.message || e));
+          }
+        },
+      },
+    ]);
+  };
+
+  const total = useMemo(() => {
+    return itens.reduce((acc, it) => {
+      const q = Number(it.qtd) || 0;
+      const pr = Number(it.preco_unit);
+      return acc + q * (Number.isFinite(pr) ? pr : 0);
+    }, 0);
+  }, [itens]);
+
+  if (!comanda) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.empty}>Carregando comanda...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Adicionar itens</Text>
-
-      <View
-        style={styles.row}
-        pointerEvents="auto"
-      >
-        {/* Caixa do input com posição relativa para o dropdown absoluto */}
-        <View
-          ref={inputBoxRef}
-          style={styles.inputBox}
-          onLayout={(e) => setInputHeight(e.nativeEvent.layout.height || 48)}
+      {/* Header com ação de finalizar */}
+      <View style={styles.headerRow}>
+        <Text style={styles.h1}>Itens da Comanda</Text>
+        <Pressable
+          style={[styles.btnWarn, { opacity: loading ? 0.6 : 1 }]}
+          onPress={fecharComanda}
+          disabled={loading}
         >
-          <Input
-            style={{ flex: 1 }}
-            placeholder="ID ou NOME do produto"
-            value={produtoRef}
-            onChangeText={atualizarSugestoes}
-            autoCapitalize="characters"
-            onBlur={() => setTimeout(() => setSugestoes([]), 150)} // dá tempo de tocar na sugestão
-          />
+          <Text style={styles.btnWarnTxt}>Fechar comanda</Text>
+        </Pressable>
+      </View>
 
-          {/* DROPDOWN */}
+      {/* Form de item (sem preço) */}
+      <View style={styles.row}>
+        <View style={{ flex: 2 }}>
+          <Input placeholder="Produto" value={produto} onChangeText={setProduto} />
           {sugestoes.length > 0 && (
-            <View
-              style={[
-                styles.dropdown,
-                { top: inputHeight + 4 } // logo abaixo do input
-              ]}
-              pointerEvents="auto"
-            >
-              {sugestoes.map((p) => (
-                <TouchableOpacity
-                  key={String(p.id)}
-                  style={styles.sugestaoItem}
-                  onPress={() => escolherSugestao(p)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.sugestaoTxt}>{p.id} — {p.nome}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.suggestBox}>
+              <FlatList
+                keyboardShouldPersistTaps="handled"
+                data={sugestoes}
+                keyExtractor={(it, idx) => (it?.id ? String(it.id) : `s-${idx}`)}
+                renderItem={({ item }) => (
+                  <Pressable style={styles.suggestItem} onPress={() => selecionarSugestao(item)}>
+                    <Text style={styles.suggestName}>{item.nome}</Text>
+                    <Text style={styles.suggestPrice}>R$ {(Number(item.preco) || 0).toFixed(2)}</Text>
+                  </Pressable>
+                )}
+                ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: COLORS.border }} />}
+              />
             </View>
           )}
         </View>
 
-        <View style={{ width: SPACING.md }} />
-        <Input
-          style={{ width: 140 }}
-          placeholder="Quantidade"
-          value={quantidade}
-          onChangeText={setQuantidade}
-          keyboardType="decimal-pad"
-        />
-        <View style={{ width: SPACING.md }} />
-        <Pressable style={styles.addBtn} onPress={addItem}>
-          <Text style={styles.addTxt}>Adicionar</Text>
-        </Pressable>
+        <Input style={{ flex: 1 }} placeholder="Qtd" keyboardType="numeric" value={qtd} onChangeText={setQtd} />
       </View>
 
-      <Text style={styles.subtitle}>Itens da comanda</Text>
+      <Input placeholder="Observação (opcional)" value={obs} onChangeText={setObs} />
+
+      <Pressable style={styles.btnPrimary} onPress={addItem} disabled={loading}>
+        <Text style={styles.btnPrimaryTxt}>Adicionar</Text>
+      </Pressable>
+
+      {/* Lista de itens */}
       <FlatList
+        style={{ marginTop: SPACING.lg }}
         data={itens}
-        keyExtractor={(_, i) => String(i)}
-        renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm + 2 }} />}
-        contentContainerStyle={{ paddingVertical: SPACING.md }}
-        keyboardShouldPersistTaps="handled"
+        keyExtractor={(it, idx) => (it?.id ? String(it.id) : `i-${idx}`)}
+        ListEmptyComponent={<Text style={styles.empty}>Sem itens.</Text>}
+        renderItem={({ item }) => (
+          <View style={styles.item}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.itemNome}>{item.produto}</Text>
+              <Text style={styles.itemSub}>
+                Qtd: {item.qtd} • Preço: R$ {(Number(item.preco_unit) || 0).toFixed(2)}
+              </Text>
+              {item.obs ? <Text style={styles.itemObs}>Obs: {item.obs}</Text> : null}
+            </View>
+            <Pressable style={styles.btnDanger} onPress={() => removerItem(item.id)}>
+              <Text style={styles.btnDangerTxt}>Remover</Text>
+            </Pressable>
+          </View>
+        )}
+        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm }} />}
       />
 
-      <View style={styles.footer}>
-        <Text style={styles.total}>Total: R$ {total.toFixed(2)}</Text>
-        <Pressable style={styles.finishBtn} onPress={finalizar}>
-          <Text style={styles.finishTxt}>Finalizar comanda</Text>
-        </Pressable>
+      {/* Total */}
+      <View style={styles.totalBox}>
+        <Text style={styles.totalTxt}>Total: R$ {total.toFixed(2)}</Text>
       </View>
     </View>
   );
 }
 
-const SHADOW = Platform.select({
-  android: { elevation: 12 },
-  ios: {
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  default: {},
-});
-
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
-  title: { fontSize: FONT.size.lg, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.sm },
-  subtitle: { marginTop: SPACING.lg, fontWeight: '800', color: COLORS.text },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  container: { flex: 1, padding: SPACING.lg },
+  h1: { fontSize: 18, fontWeight: '900', color: COLORS.text },
 
-  // caixa do input para posicionar dropdown
-  inputBox: {
-    flex: 1,
-    position: 'relative',
-    zIndex: 50,
-    // garante que o dropdown possa “sair” da caixa
-    overflow: 'visible',
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.md,
   },
 
-  addBtn: {
+  row: { flexDirection: 'row', gap: SPACING.md, alignItems: 'flex-start', marginBottom: SPACING.md },
+
+  btnPrimary: {
+    alignSelf: 'flex-start',
     backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.xl - 2,
-    paddingVertical: SPACING.lg,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm + 2,
     borderRadius: RADII.md,
+    marginTop: SPACING.sm,
   },
-  addTxt: { color: '#fff', fontWeight: '900' },
+  btnPrimaryTxt: { color: '#fff', fontWeight: '900' },
+
+  btnWarn: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+  },
+  btnWarnTxt: { color: '#1f2937', fontWeight: '900' },
 
   item: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: COLORS.card,
-    borderRadius: RADII.lg,
+    borderRadius: RADII.md,
     padding: SPACING.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: 1, borderColor: COLORS.border,
   },
   itemNome: { fontWeight: '800', color: COLORS.text },
   itemSub: { color: COLORS.textMuted, marginTop: 4 },
+  itemObs: { color: COLORS.text, marginTop: 4, fontStyle: 'italic' },
 
-  footer: { marginTop: SPACING.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  total: { fontSize: FONT.size.lg, fontWeight: '900', color: COLORS.text },
-  finishBtn: {
-    backgroundColor: '#16a34a',
-    paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.lg,
-    borderRadius: RADII.lg,
-  },
-  finishTxt: { color: '#fff', fontWeight: '900' },
+  btnDanger: { backgroundColor: COLORS.danger, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: RADII.sm },
+  btnDangerTxt: { color: '#fff', fontWeight: '800' },
 
-  dropdown: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    backgroundColor: '#1e1e1e',
-    borderRadius: 8,
+  totalBox: { marginTop: SPACING.lg, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: SPACING.lg, alignItems: 'flex-end' },
+  totalTxt: { fontSize: 16, fontWeight: '900', color: COLORS.text },
+
+  // Autocomplete
+  suggestBox: {
+    marginTop: 6,
     borderWidth: 1,
-    borderColor: '#333',
-    maxHeight: 224,
-    zIndex: 9999,
-    ...SHADOW,
+    borderColor: COLORS.border,
+    borderRadius: RADII.md,
+    backgroundColor: COLORS.card,
+    maxHeight: 180,
+    overflow: 'hidden',
   },
-  sugestaoItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+  suggestItem: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
-  sugestaoTxt: { color: '#fff' },
+  suggestName: { color: COLORS.text, fontWeight: '600' },
+  suggestPrice: { color: COLORS.textMuted },
+  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.md },
 });
