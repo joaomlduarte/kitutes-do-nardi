@@ -38,7 +38,7 @@ export default function ComandasListScreen() {
     const nomeTrim = nome.trim();
     if (!nomeTrim) return Alert.alert('Atenção', 'Informe o nome/ID da comanda.');
     try {
-      await dbRun(`INSERT INTO comandas (nome, status) VALUES (?, 'aberta');`, [nomeTrim]);
+      await dbRun(`INSERT INTO comandas (nome, status, updated_at) VALUES (?, 'aberta', datetime('now'));`, [nomeTrim]);
       setNome('');
       await carregar();
     } catch (e) {

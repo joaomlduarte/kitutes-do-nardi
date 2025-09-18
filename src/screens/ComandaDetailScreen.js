@@ -5,6 +5,13 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import Input from '../components/Input';
 import { COLORS, RADII, SPACING } from '../theme';
 import { dbRun, dbSelectAll } from '../storage/database';
+import { initDb, criarComanda, getComandasAbertas, getComandaById, criarItem, listarItens, excluirItem, listarProdutos, buscarProdutosLike, salvarProduto, removerProduto } from '@/src/storage/database';
+
+// no boot do app
+useEffect(() => { initDb().catch(console.error); }, []);
+
+// criar comanda
+await criarComanda(nome); // sem sql na tela
 
 export default function ComandaDetailScreen() {
   const route = useRoute();
