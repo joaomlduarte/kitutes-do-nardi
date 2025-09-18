@@ -1,318 +1,255 @@
 // src/screens/ComandaDetailScreen.js
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, Pressable, Alert } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import Input from '../components/Input';
-import { COLORS, RADII, SPACING } from '../theme';
-import { dbRun, dbSelectAll } from '../storage/database';
-import { initDb, criarComanda, getComandasAbertas, getComandaById, criarItem, listarItens, excluirItem, listarProdutos, buscarProdutosLike, salvarProduto, removerProduto } from '@/src/storage/database';
-
-// no boot do app
-useEffect(() => { initDb().catch(console.error); }, []);
-
-// criar comanda
-await criarComanda(nome); // sem sql na tela
+import React, { useCallback, useState } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, RefreshControl,
+  TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
+} from 'react-native';
+import { useRoute, useFocusEffect } from '@react-navigation/native';
+import { dbSelectAll, dbRun } from '../storage/database';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ComandaDetailScreen() {
   const route = useRoute();
-  const navigation = useNavigation();
-  const id = route?.params?.id;
+  const comandaId = route.params?.id ?? route.params?.comandaId;
 
   const [comanda, setComanda] = useState(null);
   const [itens, setItens] = useState([]);
-  const [produto, setProduto] = useState('');
-  const [qtd, setQtd] = useState('1');
-  const [obs, setObs] = useState('');
-  const [sugestoes, setSugestoes] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const carregar = async () => {
-    if (id == null) {
-      Alert.alert('Erro', 'ID da comanda não informado.');
-      navigation.goBack();
-      return;
-    }
+  // inputs
+  const [produto, setProduto] = useState('');
+  const [qtd, setQtd] = useState('1');
+  const [preco, setPreco] = useState('');
+  const [obs, setObs] = useState('');
+
+  const carregar = useCallback(async () => {
+    if (!comandaId) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      const c = await dbSelectAll(`SELECT * FROM comandas WHERE id = ?;`, [id]);
-      if (!c.length) {
-        Alert.alert('Erro', 'Comanda não encontrada.');
-        navigation.goBack();
-        return;
-      }
-      const its = await dbSelectAll(
-        `SELECT * FROM itens WHERE comanda_id = ? ORDER BY id ASC;`,
-        [id]
-      );
-      setComanda(c[0]);
-      setItens(its);
-      navigation.setOptions({
-        title: c[0]?.nome ? `Comanda: ${c[0].nome}` : `Comanda #${c[0].id}`,
-      });
+      const [c] = await dbSelectAll('SELECT * FROM comandas WHERE id = ?;', [comandaId]);
+      const its = await dbSelectAll('SELECT * FROM itens WHERE comanda_id = ? ORDER BY id ASC;', [comandaId]);
+      setComanda(c || null);
+      setItens(its || []);
     } catch (e) {
-      Alert.alert('Erro', String(e?.message || e));
+      console.log('[ComandaDetail] erro:', e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [comandaId]);
 
-  useEffect(() => {
-    const unsub = navigation.addListener('focus', carregar);
-    carregar();
-    return unsub;
-  }, [navigation, id]);
-
-  // Autocomplete (2+ letras)
-  useEffect(() => {
-    const term = (produto || '').trim();
-    if (term.length < 2) {
-      setSugestoes([]);
-      return;
-    }
-    (async () => {
-      const rows = await dbSelectAll(
-        `SELECT id, nome, preco FROM produtos WHERE nome LIKE ? ORDER BY nome LIMIT 8;`,
-        [`%${term}%`]
-      );
-      setSugestoes(rows);
-    })();
-  }, [produto]);
-
-  const selecionarSugestao = (p) => {
-    setProduto(p.nome);
-    setSugestoes([]);
-  };
-
-  const obterPrecoDoProduto = async (nome) => {
-    const row = await dbSelectAll(
-      `SELECT preco FROM produtos WHERE nome = ? LIMIT 1;`,
-      [nome]
-    );
-    if (!row.length) return NaN;
-    const n = Number(row[0].preco);
-    return Number.isFinite(n) ? n : NaN;
-  };
+  useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
 
   const addItem = async () => {
-    const p = (produto || '').trim();
-    const q = Number(qtd);
+    const nome = (produto || '').trim();
+    const nQtd = Math.max(1, parseInt(qtd || '1', 10) || 1);
+    let nPreco = parseFloat(preco.replace(',', '.'));
+    if (Number.isNaN(nPreco)) {
+      // tenta pegar preço do catálogo
+      const r = await dbSelectAll('SELECT preco FROM produtos WHERE nome = ?;', [nome]);
+      if (r?.length) nPreco = Number(r[0].preco || 0);
+      if (Number.isNaN(nPreco)) nPreco = 0;
+    }
 
-    if (!p) return Alert.alert('Atenção', 'Informe o produto.');
-    if (!Number.isFinite(q) || q <= 0) return Alert.alert('Atenção', 'Qtd inválida.');
+    if (!nome) {
+      Alert.alert('Produto obrigatório', 'Digite o nome do produto.');
+      return;
+    }
 
     try {
-      // pega o preço do cadastro de produtos
-      const preco = await obterPrecoDoProduto(p);
-      if (!Number.isFinite(preco)) {
-        Alert.alert(
-          'Produto não encontrado',
-          'Cadastre o produto com seu preço na aba Produtos antes de adicionar à comanda.'
-        );
-        return;
-      }
-
       await dbRun(
-        `INSERT INTO itens (comanda_id, produto, qtd, preco_unit, obs) VALUES (?, ?, ?, ?, ?);`,
-        [id, p, q, preco, obs?.trim() || null]
+        'INSERT INTO itens (comanda_id, produto, qtd, preco_unit, obs, updated_at) VALUES (?, ?, ?, ?, ?, datetime(\'now\'));',
+        [comandaId, nome, nQtd, nPreco, obs || null]
       );
 
-      // limpeza e refresh
+      // upsert simples do produto (cadastra/atualiza pelo nome)
+      const row = await dbSelectAll('SELECT id FROM produtos WHERE nome = ?;', [nome]);
+      if (row?.length) {
+        await dbRun('UPDATE produtos SET preco = ?, updated_at = datetime(\'now\') WHERE id = ?;', [nPreco, row[0].id]);
+      } else {
+        await dbRun('INSERT INTO produtos (nome, preco, updated_at) VALUES (?, ?, datetime(\'now\'));', [nome, nPreco]);
+      }
+
+      // limpa inputs e recarrega
       setProduto('');
       setQtd('1');
+      setPreco('');
       setObs('');
       await carregar();
     } catch (e) {
-      Alert.alert('Erro', String(e?.message || e));
+      console.log('[ComandaDetail] addItem erro:', e);
+      Alert.alert('Erro', 'Não foi possível adicionar o item.');
     }
   };
 
-  const removerItem = async (itemId) => {
+  const removerItem = async (id) => {
     try {
-      await dbRun(`DELETE FROM itens WHERE id = ?;`, [itemId]);
+      await dbRun('DELETE FROM itens WHERE id = ?;', [id]);
       await carregar();
     } catch (e) {
-      Alert.alert('Erro', String(e?.message || e));
+      console.log('[ComandaDetail] removerItem erro:', e);
     }
   };
 
-  const fecharComanda = async () => {
-    Alert.alert('Finalizar', 'Deseja fechar esta comanda?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Fechar',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await dbRun(`UPDATE comandas SET status = 'fechada' WHERE id = ?;`, [id]);
-            navigation.goBack();
-          } catch (e) {
-            Alert.alert('Erro', String(e?.message || e));
-          }
-        },
-      },
-    ]);
-  };
-
-  const total = useMemo(() => {
-    return itens.reduce((acc, it) => {
-      const q = Number(it.qtd) || 0;
-      const pr = Number(it.preco_unit);
-      return acc + q * (Number.isFinite(pr) ? pr : 0);
-    }, 0);
-  }, [itens]);
-
-  if (!comanda) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.empty}>Carregando comanda...</Text>
-      </View>
-    );
-  }
+  const total = itens.reduce((acc, it) => acc + Number(it.qtd || 0) * Number(it.preco_unit || 0), 0);
 
   return (
-    <View style={styles.container}>
-      {/* Header com ação de finalizar */}
-      <View style={styles.headerRow}>
-        <Text style={styles.h1}>Itens da Comanda</Text>
-        <Pressable
-          style={[styles.btnWarn, { opacity: loading ? 0.6 : 1 }]}
-          onPress={fecharComanda}
-          disabled={loading}
-        >
-          <Text style={styles.btnWarnTxt}>Fechar comanda</Text>
-        </Pressable>
-      </View>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.select({ ios: 'padding', default: undefined })}
+    >
+      <View style={styles.container}>
+        <Text style={styles.title}>Comanda #{comandaId}</Text>
+        <Text style={styles.subtitle}>
+          {(comanda?.nome || '(sem nome)')} • {comanda?.status || '-'}
+        </Text>
 
-      {/* Form de item (sem preço) */}
-      <View style={styles.row}>
-        <View style={{ flex: 2 }}>
-          <Input placeholder="Produto" value={produto} onChangeText={setProduto} />
-          {sugestoes.length > 0 && (
-            <View style={styles.suggestBox}>
-              <FlatList
-                keyboardShouldPersistTaps="handled"
-                data={sugestoes}
-                keyExtractor={(it, idx) => (it?.id ? String(it.id) : `s-${idx}`)}
-                renderItem={({ item }) => (
-                  <Pressable style={styles.suggestItem} onPress={() => selecionarSugestao(item)}>
-                    <Text style={styles.suggestName}>{item.nome}</Text>
-                    <Text style={styles.suggestPrice}>R$ {(Number(item.preco) || 0).toFixed(2)}</Text>
-                  </Pressable>
-                )}
-                ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: COLORS.border }} />}
-              />
+        <View style={styles.row}>
+          <TextInput
+            style={[styles.input, { flex: 2 }]}
+            placeholder="Produto"
+            value={produto}
+            onChangeText={setProduto}
+            placeholderTextColor={COLORS.hint}
+          />
+          <TextInput
+            style={[styles.input, { width: 70, textAlign: 'center' }]}
+            placeholder="Qtd"
+            keyboardType="number-pad"
+            value={qtd}
+            onChangeText={setQtd}
+            placeholderTextColor={COLORS.hint}
+          />
+          <TextInput
+            style={[styles.input, { width: 110 }]}
+            placeholder="Preço"
+            keyboardType="decimal-pad"
+            value={preco}
+            onChangeText={setPreco}
+            placeholderTextColor={COLORS.hint}
+          />
+        </View>
+        <TextInput
+          style={[styles.input, { marginTop: SPACING.sm }]}
+          placeholder="Observações (opcional)"
+          value={obs}
+          onChangeText={setObs}
+          placeholderTextColor={COLORS.hint}
+        />
+        <TouchableOpacity style={styles.btnAdd} onPress={addItem}>
+          <Text style={styles.btnAddTxt}>Adicionar item</Text>
+        </TouchableOpacity>
+
+        <FlatList
+          style={{ flex: 1, marginTop: SPACING.lg }}
+          data={itens}
+          keyExtractor={(it) => String(it.id)}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={carregar} />}
+          ItemSeparatorComponent={() => <View style={{ height: SPACING.sm }} />}
+          renderItem={({ item }) => (
+            <View style={styles.item}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.itemNome}>
+                  {item.produto} × {item.qtd}
+                </Text>
+                <Text style={styles.itemMeta}>
+                  R$ {Number(item.preco_unit || 0).toFixed(2)} {item.obs ? `• ${item.obs}` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.itemDel} onPress={() => removerItem(item.id)}>
+                <Text style={styles.itemDelTxt}>Remover</Text>
+              </TouchableOpacity>
             </View>
           )}
-        </View>
-
-        <Input style={{ flex: 1 }} placeholder="Qtd" keyboardType="numeric" value={qtd} onChangeText={setQtd} />
-      </View>
-
-      <Input placeholder="Observação (opcional)" value={obs} onChangeText={setObs} />
-
-      <Pressable style={styles.btnPrimary} onPress={addItem} disabled={loading}>
-        <Text style={styles.btnPrimaryTxt}>Adicionar</Text>
-      </Pressable>
-
-      {/* Lista de itens */}
-      <FlatList
-        style={{ marginTop: SPACING.lg }}
-        data={itens}
-        keyExtractor={(it, idx) => (it?.id ? String(it.id) : `i-${idx}`)}
-        ListEmptyComponent={<Text style={styles.empty}>Sem itens.</Text>}
-        renderItem={({ item }) => (
-          <View style={styles.item}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.itemNome}>{item.produto}</Text>
-              <Text style={styles.itemSub}>
-                Qtd: {item.qtd} • Preço: R$ {(Number(item.preco_unit) || 0).toFixed(2)}
-              </Text>
-              {item.obs ? <Text style={styles.itemObs}>Obs: {item.obs}</Text> : null}
+          ListFooterComponent={
+            <View style={{ marginTop: SPACING.lg, alignItems: 'flex-end' }}>
+              <Text style={styles.total}>Total: R$ {total.toFixed(2)}</Text>
             </View>
-            <Pressable style={styles.btnDanger} onPress={() => removerItem(item.id)}>
-              <Text style={styles.btnDangerTxt}>Remover</Text>
-            </Pressable>
-          </View>
-        )}
-        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm }} />}
-      />
-
-      {/* Total */}
-      <View style={styles.totalBox}>
-        <Text style={styles.totalTxt}>Total: R$ {total.toFixed(2)}</Text>
+          }
+          contentContainerStyle={{ paddingBottom: SPACING.xl }}
+        />
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: SPACING.lg },
-  h1: { fontSize: 18, fontWeight: '900', color: COLORS.text },
-
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: SPACING.md,
+  container: { 
+    flex: 1, 
+    padding: SPACING.xl,
+    backgroundColor: COLORS.bg
   },
-
-  row: { flexDirection: 'row', gap: SPACING.md, alignItems: 'flex-start', marginBottom: SPACING.md },
-
-  btnPrimary: {
-    alignSelf: 'flex-start',
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm + 2,
-    borderRadius: RADII.md,
-    marginTop: SPACING.sm,
+  title: { 
+    fontSize: FONT.size.xl, 
+    fontWeight: FONT.weight.black,
+    color: COLORS.text
   },
-  btnPrimaryTxt: { color: '#fff', fontWeight: '900' },
-
-  btnWarn: {
-    backgroundColor: '#f59e0b',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADII.md,
-    borderWidth: 1,
-    borderColor: '#f59e0b',
+  subtitle: { 
+    marginTop: 2, 
+    color: COLORS.textMuted,
+    fontSize: FONT.size.base
   },
-  btnWarnTxt: { color: '#1f2937', fontWeight: '900' },
-
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  row: { 
+    marginTop: SPACING.lg, 
+    flexDirection: 'row', 
+    gap: SPACING.sm 
+  },
+  input: { 
+    borderWidth: 1, 
+    borderColor: COLORS.border, 
+    borderRadius: RADII.md, 
+    paddingHorizontal: SPACING.lg, 
+    height: 44,
     backgroundColor: COLORS.card,
-    borderRadius: RADII.md,
-    padding: SPACING.lg,
-    borderWidth: 1, borderColor: COLORS.border,
+    color: COLORS.text,
+    fontSize: FONT.size.md
   },
-  itemNome: { fontWeight: '800', color: COLORS.text },
-  itemSub: { color: COLORS.textMuted, marginTop: 4 },
-  itemObs: { color: COLORS.text, marginTop: 4, fontStyle: 'italic' },
-
-  btnDanger: { backgroundColor: COLORS.danger, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: RADII.sm },
-  btnDangerTxt: { color: '#fff', fontWeight: '800' },
-
-  totalBox: { marginTop: SPACING.lg, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: SPACING.lg, alignItems: 'flex-end' },
-  totalTxt: { fontSize: 16, fontWeight: '900', color: COLORS.text },
-
-  // Autocomplete
-  suggestBox: {
-    marginTop: 6,
+  btnAdd: { 
+    marginTop: SPACING.sm, 
+    backgroundColor: COLORS.primary, 
+    borderRadius: RADII.md, 
+    height: 46, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  btnAddTxt: { 
+    color: COLORS.card, 
+    fontWeight: FONT.weight.bold,
+    fontSize: FONT.size.md
+  },
+  item: { 
+    flexDirection: 'row', 
+    gap: SPACING.sm, 
+    padding: SPACING.lg, 
+    backgroundColor: COLORS.card, 
+    borderRadius: RADII.lg, 
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: RADII.md,
-    backgroundColor: COLORS.card,
-    maxHeight: 180,
-    overflow: 'hidden',
+    borderColor: COLORS.border
   },
-  suggestItem: {
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  itemNome: { 
+    fontSize: FONT.size.md, 
+    fontWeight: FONT.weight.bold,
+    color: COLORS.text
   },
-  suggestName: { color: COLORS.text, fontWeight: '600' },
-  suggestPrice: { color: COLORS.textMuted },
-  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.md },
+  itemMeta: { 
+    color: COLORS.textMuted, 
+    marginTop: 2,
+    fontSize: FONT.size.sm
+  },
+  itemDel: { 
+    backgroundColor: COLORS.danger, 
+    borderRadius: RADII.sm, 
+    paddingHorizontal: SPACING.lg, 
+    paddingVertical: SPACING.sm 
+  },
+  itemDelTxt: { 
+    color: COLORS.card, 
+    fontWeight: FONT.weight.bold,
+    fontSize: FONT.size.sm
+  },
+  total: { 
+    fontSize: FONT.size.lg, 
+    fontWeight: FONT.weight.black,
+    color: COLORS.text
+  },
 });

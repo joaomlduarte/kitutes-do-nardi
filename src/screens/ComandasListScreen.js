@@ -1,112 +1,124 @@
 // src/screens/ComandasListScreen.js
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet, Alert } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import Input from '../components/Input';
-import { COLORS, RADII, SPACING } from '../theme';
-import { dbRun, dbSelectAll } from '../storage/database';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { dbSelectAll, dbRun } from '../storage/database';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ComandasListScreen() {
   const navigation = useNavigation();
-  const [nome, setNome] = useState('');
-  const [comandas, setComandas] = useState([]);
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const carregar = async () => {
+  const carregar = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      // ORDEM ALFABÉTICA (case-insensitive)
-      const rows = await dbSelectAll(
-        `SELECT * FROM comandas WHERE status = 'aberta' ORDER BY nome COLLATE NOCASE ASC;`
+      const r = await dbSelectAll(
+        "SELECT * FROM comandas WHERE status = 'aberta' ORDER BY nome COLLATE NOCASE ASC;"
       );
-      setComandas(rows);
+      setRows(r || []);
     } catch (e) {
-      console.error(e);
-      Alert.alert('Erro', String(e.message || e));
+      console.log('[ComandasList] erro:', e);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => {
-    const unsub = navigation.addListener('focus', carregar);
-    carregar();
-    return unsub;
-  }, [navigation]);
+  useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
 
-  const criar = async () => {
-    const nomeTrim = nome.trim();
-    if (!nomeTrim) return Alert.alert('Atenção', 'Informe o nome/ID da comanda.');
+  const fechar = async (id, nome) => {
     try {
-      await dbRun(`INSERT INTO comandas (nome, status, updated_at) VALUES (?, 'aberta', datetime('now'));`, [nomeTrim]);
-      setNome('');
+      await dbRun("UPDATE comandas SET status='fechada', updated_at = datetime('now') WHERE id = ?;", [id]);
       await carregar();
+      Alert.alert('Comanda fechada', `A comanda "${nome || id}" foi fechada.`);
     } catch (e) {
-      Alert.alert('Erro', String(e.message || e));
+      console.log('[ComandasList] fechar erro:', e);
+      Alert.alert('Erro', 'Não foi possível fechar a comanda.');
     }
   };
 
-  const abrir = (item) => navigation.navigate('ComandaDetail', { id: item.id, title: item.nome });
+  const abrirDetalhe = (id) => {
+    // ajuste o nome da rota se no seu navigator for diferente
+    navigation.navigate?.('ComandaDetail', { id, comandaId: id });
+  };
+
+  const renderItem = ({ item }) => (
+    <TouchableOpacity onPress={() => abrirDetalhe(item.id)} style={styles.card}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.nome}>{item.nome || '(sem nome)'}</Text>
+        <Text style={styles.meta}>id: {item.id} • status: {item.status || '-'}</Text>
+      </View>
+      <TouchableOpacity onPress={() => fechar(item.id, item.nome)} style={styles.btnFechar}>
+        <Text style={styles.btnFecharTxt}>Fechar</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.h1}>Comandas Abertas (A–Z)</Text>
-
-      <View style={styles.row}>
-        <Input
-          style={{ flex: 1 }}
-          placeholder="Nome/ID da comanda"
-          value={nome}
-          onChangeText={setNome}
-        />
-        <Pressable style={styles.btnPrimary} onPress={criar} disabled={loading}>
-          <Text style={styles.btnPrimaryTxt}>Criar</Text>
-        </Pressable>
-      </View>
-
+      <Text style={styles.title}>Comandas abertas</Text>
       <FlatList
-        refreshing={loading}
-        onRefresh={carregar}
-        data={comandas}
-        keyExtractor={(it, idx) => (it?.id != null ? String(it.id) : `idx-${idx}`)}
-        ListEmptyComponent={<Text style={styles.empty}>Nenhuma comanda aberta.</Text>}
-        renderItem={({ item }) => (
-          <Pressable style={styles.card} onPress={() => abrir(item)}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{item?.nome ?? `#${item?.id}`}</Text>
-              <Text style={styles.cardSub}>Status: {item?.status ?? '-'}</Text>
-            </View>
-            <Text style={{ color: COLORS.link, fontWeight: '800' }}>Abrir</Text>
-          </Pressable>
+        data={rows}
+        keyExtractor={(it) => String(it.id)}
+        renderItem={renderItem}
+        ItemSeparatorComponent={() => <View style={{ height: SPACING.sm }} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={carregar} />}
+        ListEmptyComponent={!loading && (
+          <Text style={styles.emptyText}>Nenhuma comanda aberta.</Text>
         )}
-        ItemSeparatorComponent={() => <View style={{ height: SPACING.md }} />}
-        contentContainerStyle={{ paddingVertical: SPACING.lg }}
+        contentContainerStyle={{ paddingVertical: SPACING.sm }}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: SPACING.lg },
-  h1: { fontSize: 20, fontWeight: '900', color: COLORS.text, marginBottom: SPACING.lg },
-  row: { flexDirection: 'row', gap: SPACING.md, alignItems: 'center' },
-  btnPrimary: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm + 2,
-    borderRadius: RADII.md,
+  container: { 
+    flex: 1, 
+    padding: SPACING.xl,
+    backgroundColor: COLORS.bg
   },
-  btnPrimaryTxt: { color: '#fff', fontWeight: '900' },
-  card: {
-    flexDirection: 'row',
+  title: { 
+    fontSize: FONT.size.xl, 
+    fontWeight: FONT.weight.black, 
+    marginBottom: SPACING.sm,
+    color: COLORS.text
+  },
+  card: { 
+    flexDirection: 'row', 
+    gap: SPACING.sm, 
+    padding: SPACING.lg, 
+    backgroundColor: COLORS.card, 
+    borderRadius: RADII.lg, 
     alignItems: 'center',
-    backgroundColor: COLORS.card,
-    borderRadius: RADII.lg,
-    padding: SPACING.lg + 2,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.border
   },
-  cardTitle: { fontWeight: '800', color: COLORS.text },
-  cardSub: { color: COLORS.textMuted, marginTop: 4 },
-  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.lg },
+  nome: { 
+    fontSize: FONT.size.md, 
+    fontWeight: FONT.weight.bold,
+    color: COLORS.text
+  },
+  meta: { 
+    color: COLORS.textMuted, 
+    marginTop: 2,
+    fontSize: FONT.size.sm
+  },
+  btnFechar: { 
+    backgroundColor: COLORS.danger, 
+    paddingHorizontal: SPACING.lg, 
+    paddingVertical: SPACING.sm, 
+    borderRadius: RADII.sm 
+  },
+  btnFecharTxt: { 
+    color: COLORS.card, 
+    fontWeight: FONT.weight.bold,
+    fontSize: FONT.size.sm
+  },
+  emptyText: {
+    color: COLORS.textMuted,
+    marginTop: SPACING.lg,
+    fontSize: FONT.size.base,
+    textAlign: 'center'
+  },
 });

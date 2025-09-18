@@ -1,203 +1,193 @@
 // src/screens/ProdutosScreen.js
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet, Alert } from 'react-native';
-import Input from '../components/Input';
-import { COLORS, RADII, SPACING } from '../theme';
-import { dbRun, dbSelectAll } from '../storage/database';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, RefreshControl, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { dbSelectAll, dbRun } from '../storage/database';
+import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ProdutosScreen() {
-  const [produtos, setProdutos] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-  const [nome, setNome] = useState('');
-  const [preco, setPreco] = useState('');
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const carregar = async () => {
+  const [nome, setNome] = useState('');
+  const [preco, setPreco] = useState('');
+
+  const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await dbSelectAll(`SELECT * FROM produtos ORDER BY nome COLLATE NOCASE ASC;`);
-      setProdutos(rows);
+      const r = await dbSelectAll('SELECT * FROM produtos ORDER BY nome COLLATE NOCASE ASC;');
+      setRows(r || []);
     } catch (e) {
-      Alert.alert('Erro', String(e?.message || e));
+      console.log('[Produtos] erro:', e);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { carregar(); }, []);
-
-  const parsePreco = (val) => {
-    // aceita "12,34" ou "12.34"
-    const n = Number(String(val).replace(',', '.'));
-    return Number.isFinite(n) ? n : NaN;
-    };
-
-  const limparForm = () => {
-    setEditingId(null);
-    setNome('');
-    setPreco('');
-  };
+  useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
 
   const salvar = async () => {
-    const nomeTrim = nome.trim();
-    const valor = parsePreco(preco);
-    if (!nomeTrim) return Alert.alert('Atenção', 'Informe o nome do produto.');
-    if (!Number.isFinite(valor) || valor < 0) return Alert.alert('Atenção', 'Preço inválido.');
+    const nm = (nome || '').trim();
+    if (!nm) {
+      Alert.alert('Nome obrigatório', 'Informe o nome do produto.');
+      return;
+    }
+    let pr = parseFloat(String(preco).replace(',', '.'));
+    if (Number.isNaN(pr)) pr = 0;
 
     try {
-      if (editingId == null) {
-        // INSERT
-        await dbRun(`INSERT INTO produtos (nome, preco) VALUES (?, ?);`, [nomeTrim, valor]);
+      const r = await dbSelectAll('SELECT id FROM produtos WHERE nome = ?;', [nm]);
+      if (r?.length) {
+        await dbRun('UPDATE produtos SET nome = ?, preco = ?, updated_at = datetime(\'now\') WHERE id = ?;', [nm, pr, r[0].id]);
       } else {
-        // UPDATE por id
-        await dbRun(`UPDATE produtos SET nome = ?, preco = ? WHERE id = ?;`, [nomeTrim, valor, editingId]);
+        await dbRun('INSERT INTO produtos (nome, preco, updated_at) VALUES (?, ?, datetime(\'now\'));', [nm, pr]);
       }
-      limparForm();
+      setNome('');
+      setPreco('');
       await carregar();
     } catch (e) {
-      Alert.alert('Erro ao salvar', String(e?.message || e));
+      console.log('[Produtos] salvar erro:', e);
+      Alert.alert('Erro', 'Não foi possível salvar o produto.');
     }
   };
 
-  const editar = (p) => {
-    setEditingId(p.id);
-    setNome(p.nome ?? '');
-    setPreco((Number(p.preco) || 0).toString().replace('.', ','));
+  const remover = async (id) => {
+    try {
+      await dbRun('DELETE FROM produtos WHERE id = ?;', [id]);
+      await carregar();
+    } catch (e) {
+      console.log('[Produtos] remover erro:', e);
+    }
   };
 
-  const excluir = async (id) => {
-    Alert.alert('Excluir', 'Deseja remover este produto?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Remover',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await dbRun(`DELETE FROM produtos WHERE id = ?;`, [id]);
-            if (editingId === id) limparForm();
-            await carregar();
-          } catch (e) {
-            Alert.alert('Erro', String(e?.message || e));
-          }
-        },
-      },
-    ]);
-  };
-
-  const emEdicao = editingId != null;
+  const renderItem = ({ item }) => (
+    <View style={styles.rowCard}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.nome}>{item.nome}</Text>
+        <Text style={styles.meta}>id: {item.id} • R$ {Number(item.preco || 0).toFixed(2)}</Text>
+      </View>
+      <TouchableOpacity onPress={() => remover(item.id)} style={styles.btnDel}>
+        <Text style={styles.btnDelTxt}>Excluir</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.h1}>{emEdicao ? 'Editar produto' : 'Novo produto'}</Text>
+      <Text style={styles.title}>Produtos</Text>
 
       <View style={styles.formRow}>
-        <Input
-          style={{ flex: 2 }}
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
           placeholder="Nome do produto"
           value={nome}
           onChangeText={setNome}
-          autoCapitalize="words"
+          placeholderTextColor={COLORS.hint}
         />
-        <Input
-          style={{ flex: 1 }}
+        <TextInput
+          style={[styles.input, { width: 120 }]}
           placeholder="Preço"
           keyboardType="decimal-pad"
           value={preco}
           onChangeText={setPreco}
+          placeholderTextColor={COLORS.hint}
         />
+        <TouchableOpacity style={styles.btnAdd} onPress={salvar}>
+          <Text style={styles.btnAddTxt}>Salvar</Text>
+        </TouchableOpacity>
       </View>
-
-      <View style={styles.actionsRow}>
-        <Pressable style={[styles.btnPrimary, { opacity: loading ? 0.7 : 1 }]} onPress={salvar} disabled={loading}>
-          <Text style={styles.btnPrimaryTxt}>{emEdicao ? 'Atualizar' : 'Salvar'}</Text>
-        </Pressable>
-
-        {emEdicao && (
-          <Pressable style={styles.btnGhost} onPress={limparForm}>
-            <Text style={styles.btnGhostTxt}>Cancelar</Text>
-          </Pressable>
-        )}
-      </View>
-
-      <Text style={[styles.h1, { marginTop: SPACING.xl }]}>Produtos</Text>
 
       <FlatList
-        refreshing={loading}
-        onRefresh={carregar}
-        data={produtos}
-        keyExtractor={(it, idx) => (it?.id != null ? String(it.id) : `p-${idx}`)}
-        ListEmptyComponent={<Text style={styles.empty}>Nenhum produto cadastrado.</Text>}
+        style={{ flex: 1, marginTop: SPACING.lg }}
+        data={rows}
+        keyExtractor={(it) => String(it.id)}
+        renderItem={renderItem}
         ItemSeparatorComponent={() => <View style={{ height: SPACING.sm }} />}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{item.nome}</Text>
-              <Text style={styles.cardSub}>R$ {(Number(item.preco) || 0).toFixed(2)}</Text>
-            </View>
-
-            <View style={styles.cardBtns}>
-              <Pressable style={styles.btnSmall} onPress={() => editar(item)}>
-                <Text style={styles.btnSmallTxt}>Editar</Text>
-              </Pressable>
-              <Pressable style={[styles.btnSmall, styles.btnDanger]} onPress={() => excluir(item.id)}>
-                <Text style={[styles.btnSmallTxt, { color: '#fff' }]}>Excluir</Text>
-              </Pressable>
-            </View>
-          </View>
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={carregar} />}
+        ListEmptyComponent={!loading && (
+          <Text style={styles.emptyText}>Nenhum produto cadastrado.</Text>
         )}
-        contentContainerStyle={{ paddingVertical: SPACING.lg }}
+        contentContainerStyle={{ paddingBottom: SPACING.xl }}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: SPACING.lg },
-  h1: { fontSize: 18, fontWeight: '900', color: COLORS.text, marginBottom: SPACING.md },
-
-  formRow: { flexDirection: 'row', gap: SPACING.md },
-  actionsRow: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.md },
-
-  btnPrimary: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.sm + 2,
-    borderRadius: RADII.md,
+  container: { 
+    flex: 1, 
+    padding: SPACING.xl,
+    backgroundColor: COLORS.bg
   },
-  btnPrimaryTxt: { color: '#fff', fontWeight: '900' },
-
-  btnGhost: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm + 2,
-    borderRadius: RADII.md,
+  title: { 
+    fontSize: FONT.size.xl, 
+    fontWeight: FONT.weight.black,
+    color: COLORS.text
   },
-  btnGhostTxt: { color: COLORS.text, fontWeight: '700' },
-
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  formRow: { 
+    flexDirection: 'row', 
+    gap: SPACING.sm, 
+    marginTop: SPACING.lg, 
+    alignItems: 'center' 
+  },
+  input: { 
+    borderWidth: 1, 
+    borderColor: COLORS.border, 
+    borderRadius: RADII.md, 
+    paddingHorizontal: SPACING.lg, 
+    height: 44,
     backgroundColor: COLORS.card,
-    borderRadius: RADII.md,
-    padding: SPACING.lg,
-    borderWidth: 1, borderColor: COLORS.border,
+    color: COLORS.text,
+    fontSize: FONT.size.md
   },
-  cardTitle: { fontWeight: '800', color: COLORS.text },
-  cardSub: { color: COLORS.textMuted, marginTop: 2 },
-
-  cardBtns: { flexDirection: 'row', gap: SPACING.sm },
-  btnSmall: {
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 8,
-    borderRadius: RADII.sm,
+  btnAdd: { 
+    backgroundColor: COLORS.primary, 
+    borderRadius: RADII.md, 
+    paddingHorizontal: SPACING.lg, 
+    height: 44, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  btnAddTxt: { 
+    color: COLORS.card, 
+    fontWeight: FONT.weight.black,
+    fontSize: FONT.size.md
+  },
+  rowCard: { 
+    flexDirection: 'row', 
+    gap: SPACING.sm, 
+    padding: SPACING.lg, 
+    backgroundColor: COLORS.card, 
+    borderRadius: RADII.lg, 
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.border
   },
-  btnSmallTxt: { color: COLORS.text, fontWeight: '800' },
-
-  btnDanger: { backgroundColor: COLORS.danger, borderColor: 'transparent' },
-
-  empty: { color: '#64748b', textAlign: 'center', marginTop: SPACING.md },
+  nome: { 
+    fontSize: FONT.size.md, 
+    fontWeight: FONT.weight.bold,
+    color: COLORS.text
+  },
+  meta: { 
+    color: COLORS.textMuted, 
+    marginTop: 2,
+    fontSize: FONT.size.sm
+  },
+  btnDel: { 
+    backgroundColor: COLORS.danger, 
+    borderRadius: RADII.sm, 
+    paddingHorizontal: SPACING.lg, 
+    paddingVertical: SPACING.sm 
+  },
+  btnDelTxt: { 
+    color: COLORS.card, 
+    fontWeight: FONT.weight.bold,
+    fontSize: FONT.size.sm
+  },
+  emptyText: {
+    color: COLORS.textMuted,
+    marginTop: SPACING.lg,
+    fontSize: FONT.size.base,
+    textAlign: 'center'
+  },
 });

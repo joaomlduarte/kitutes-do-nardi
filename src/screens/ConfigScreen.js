@@ -1,46 +1,31 @@
 // src/screens/ConfigScreen.js
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
-import { getDb, initDb } from '../storage/database';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { dbRun } from '../storage/database';
 import { COLORS, RADII, SPACING, FONT } from '../theme';
 
 export default function ConfigScreen() {
   const [busy, setBusy] = useState(false);
 
-  async function limparVendasDoDia() {
-    try {
-      setBusy(true);
-      const db = await getDb();
-      const hoje = new Date().toISOString().slice(0, 10);
-      await db.runAsync('DELETE FROM vendas WHERE data = ?', [hoje]);
-      Alert.alert('Pronto', 'Vendas de hoje removidas.');
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Erro', 'Não foi possível limpar as vendas de hoje.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function resetBanco() {
+  const limpar = useCallback(async () => {
     Alert.alert(
-      'Atenção',
-      'Isso apaga TODOS os dados (produtos e vendas). Deseja continuar?',
+      'Confirmar',
+      'Apagar TODAS as tabelas (comandas, itens, produtos)?',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Apagar tudo',
+          text: 'Apagar',
           style: 'destructive',
           onPress: async () => {
             try {
               setBusy(true);
-              const db = await getDb();
-              await db.execAsync(`DROP TABLE IF EXISTS vendas; DROP TABLE IF EXISTS produtos;`);
-              await initDb();
-              Alert.alert('Banco resetado', 'Todas as tabelas foram recriadas.');
+              await dbRun('DROP TABLE IF EXISTS itens;');
+              await dbRun('DROP TABLE IF EXISTS comandas;');
+              await dbRun('DROP TABLE IF EXISTS produtos;');
+              Alert.alert('OK', 'Tabelas removidas. Reabra o app para recriar o banco.');
             } catch (e) {
-              console.error(e);
-              Alert.alert('Erro', 'Não foi possível resetar o banco.');
+              console.log('[Config] limpar erro:', e);
+              Alert.alert('Erro', 'Não foi possível apagar as tabelas.');
             } finally {
               setBusy(false);
             }
@@ -48,42 +33,57 @@ export default function ConfigScreen() {
         },
       ]
     );
-  }
+  }, []);
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Configurações</Text>
-      <Text style={styles.desc}>Ferramentas administrativas do app.</Text>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Limpeza rápida</Text>
-        <Pressable style={[styles.btn, busy && styles.btnDisabled]} onPress={limparVendasDoDia} disabled={busy}>
-          <Text style={styles.btnTxt}>Remover vendas de hoje</Text>
-        </Pressable>
-      </View>
+      <TouchableOpacity 
+        style={[styles.btn, busy && styles.btnDisabled]} 
+        onPress={limpar} 
+        disabled={busy}
+      >
+        <Text style={styles.btnTxt}>Apagar TUDO (DEV)</Text>
+      </TouchableOpacity>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Banco de dados</Text>
-        <Pressable style={[styles.btnDanger, busy && styles.btnDisabled]} onPress={resetBanco} disabled={busy}>
-          <Text style={styles.btnTxt}>Resetar banco (apaga tudo)</Text>
-        </Pressable>
-        <Text style={styles.warn}>Use com cautela. Esta ação não pode ser desfeita.</Text>
-      </View>
+      <Text style={styles.hint}>
+        Dica: o esquema é migrado automaticamente na inicialização. Não insira colunas manualmente.
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: SPACING.xl, backgroundColor: COLORS.bg },
-  title: { fontSize: FONT.size.xl, fontWeight: '800', color: COLORS.text },
-  desc: { color: COLORS.textMuted, marginTop: 4 },
-
-  card: { backgroundColor: COLORS.card, borderRadius: RADII.lg, padding: SPACING.xl, borderWidth: 1, borderColor: COLORS.border, marginTop: SPACING.xl - 2 },
-  cardTitle: { fontWeight: '800', color: COLORS.text, marginBottom: SPACING.sm },
-
-  btn: { backgroundColor: COLORS.primary, paddingVertical: SPACING.lg, borderRadius: RADII.md, alignItems: 'center', marginTop: SPACING.sm },
-  btnDanger: { backgroundColor: COLORS.danger, paddingVertical: SPACING.lg, borderRadius: RADII.md, alignItems: 'center', marginTop: SPACING.sm },
-  btnDisabled: { opacity: 0.6 },
-  btnTxt: { color: '#fff', fontWeight: '900' },
-  warn: { color: '#b91c1c', marginTop: SPACING.sm, fontSize: FONT.size.sm },
+  container: { 
+    flex: 1, 
+    padding: SPACING.xl, 
+    gap: SPACING.lg,
+    backgroundColor: COLORS.bg
+  },
+  title: { 
+    fontSize: FONT.size.xl, 
+    fontWeight: FONT.weight.black,
+    color: COLORS.text
+  },
+  btn: { 
+    backgroundColor: COLORS.danger, 
+    borderRadius: RADII.md, 
+    paddingVertical: SPACING.lg, 
+    alignItems: 'center' 
+  },
+  btnDisabled: {
+    opacity: 0.5
+  },
+  btnTxt: { 
+    color: COLORS.card, 
+    fontWeight: FONT.weight.black,
+    fontSize: FONT.size.md
+  },
+  hint: {
+    marginTop: SPACING.lg,
+    color: COLORS.textMuted,
+    fontSize: FONT.size.sm,
+    lineHeight: 20
+  },
 });

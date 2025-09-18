@@ -14,6 +14,7 @@ import ConfigScreen from './src/screens/ConfigScreen';
 
 import { COLORS } from './src/theme';
 import { initDb } from './src/storage/database';
+import './platform-polyfill';
 
 const Tab = createBottomTabNavigator();
 
